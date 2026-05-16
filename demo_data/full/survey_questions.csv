@@ -1,0 +1,4 @@
+﻿id,survey_id,order,question_type,label,description,is_required,created_at,updated_at
+1,1,1,scale,園からのお知らせは確認しやすいですか,,true,2026-05-08T08:00:00,2026-05-08T08:00:00
+2,1,2,single_choice,登降園打刻で困ったことはありますか,,true,2026-05-08T08:00:00,2026-05-08T08:00:00
+3,1,3,text_long,連絡帳・お知らせについてご意見があれば記入してください,,false,2026-05-08T08:00:00,2026-05-08T08:00:00

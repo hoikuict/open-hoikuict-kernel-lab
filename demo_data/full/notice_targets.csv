@@ -1,0 +1,9 @@
+﻿id,notice_id,target_type,target_value,created_at
+1,1,all,,2026-05-01T08:00:00
+2,2,all,,2026-05-01T08:00:00
+3,3,classroom,1,2026-05-01T08:00:00
+4,4,classroom,2,2026-05-01T08:00:00
+5,5,classroom,3,2026-05-01T08:00:00
+6,6,classroom,4,2026-05-01T08:00:00
+7,7,classroom,5,2026-05-01T08:00:00
+8,8,classroom,6,2026-05-01T08:00:00

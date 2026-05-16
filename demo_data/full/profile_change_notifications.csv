@@ -1,0 +1,11 @@
+﻿id,parent_account_id,change_summary,change_details,is_read,created_at,read_at
+1,1,園児情報変更申請を受け付けました,"{""request_id"":1,""status"":""approved""}",true,2026-05-06T21:01:00,2026-05-07T08:01:00
+2,11,園児情報変更申請を受け付けました,"{""request_id"":2,""status"":""rejected""}",true,2026-05-07T21:02:00,2026-05-08T08:02:00
+3,20,園児情報変更申請を受け付けました,"{""request_id"":3,""status"":""pending""}",false,2026-05-08T21:03:00,
+4,29,園児情報変更申請を受け付けました,"{""request_id"":4,""status"":""approved""}",true,2026-05-09T21:04:00,2026-05-10T08:04:00
+5,46,園児情報変更申請を受け付けました,"{""request_id"":5,""status"":""rejected""}",true,2026-05-10T21:05:00,2026-05-11T08:05:00
+6,65,園児情報変更申請を受け付けました,"{""request_id"":6,""status"":""pending""}",false,2026-05-11T21:06:00,
+7,83,園児情報変更申請を受け付けました,"{""request_id"":7,""status"":""approved""}",true,2026-05-12T21:07:00,2026-05-13T08:07:00
+8,102,園児情報変更申請を受け付けました,"{""request_id"":8,""status"":""rejected""}",true,2026-05-13T21:08:00,2026-05-14T08:08:00
+9,120,園児情報変更申請を受け付けました,"{""request_id"":9,""status"":""pending""}",false,2026-05-14T21:09:00,
+10,139,園児情報変更申請を受け付けました,"{""request_id"":10,""status"":""approved""}",true,2026-05-15T21:10:00,2026-05-16T08:10:00

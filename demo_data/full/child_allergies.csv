@@ -1,0 +1,10 @@
+﻿id,child_id,allergen_category,allergen_name,severity,symptoms,diagnosis_confirmed,diagnosis_date,treating_doctor,removal_required,substitute_food,action_plan,source_document,source_document_date,valid_until,is_active,notes,created_by,updated_by,created_at,updated_at
+1,22,other_food,キウイ,mild,口周りの赤み,true,2025-11-23,サンプル小児科 3号院,true,代替食あり,摂取しない,生活管理指導表（ダミー）,2026-04-01,2027-03-31,true,保護者確認済み（ダミー）,demo-seed,demo-seed,2026-04-01T09:00:00,2026-05-01T09:00:00
+2,11,other_food,魚卵,moderate,じんましん,true,2025-12-12,サンプル小児科 2号院,true,代替食あり,給食表で事前確認,生活管理指導表（ダミー）,2026-04-01,2027-03-31,true,保護者確認済み（ダミー）,demo-seed,demo-seed,2026-04-01T09:00:00,2026-05-01T09:00:00
+3,33,food_advisory,くるみ,severe,口唇腫脹,true,2025-10-09,サンプル小児科 4号院,true,代替食あり,ナッツ類を避ける,生活管理指導表（ダミー）,2026-04-01,2027-03-31,true,保護者確認済み（ダミー）,demo-seed,demo-seed,2026-04-01T09:00:00,2026-05-01T09:00:00
+4,44,food_mandatory,小麦,moderate,発疹,true,2025-09-20,サンプル小児科 5号院,true,代替食あり,代替食対応,生活管理指導表（ダミー）,2026-04-01,2027-03-31,true,保護者確認済み（ダミー）,demo-seed,demo-seed,2026-04-01T09:00:00,2026-05-01T09:00:00
+5,55,food_mandatory,乳,severe,嘔吐、呼吸苦,true,2025-08-06,サンプル小児科 1号院,true,代替食あり,乳製品除去。保護者へ即時連絡,生活管理指導表（ダミー）,2026-04-01,2027-03-31,true,保護者確認済み（ダミー）,demo-seed,demo-seed,2026-04-01T09:00:00,2026-05-01T09:00:00
+6,66,food_mandatory,卵,moderate,じんましん、咳,true,2025-07-17,サンプル小児科 2号院,true,代替食あり,完全除去。誤食時は看護師・主任へ連絡,生活管理指導表（ダミー）,2026-04-01,2027-03-31,true,保護者確認済み（ダミー）,demo-seed,demo-seed,2026-04-01T09:00:00,2026-05-01T09:00:00
+7,77,other_food,魚卵,moderate,じんましん,true,2025-06-03,サンプル小児科 3号院,true,代替食あり,給食表で事前確認,生活管理指導表（ダミー）,2026-04-01,2027-03-31,true,保護者確認済み（ダミー）,demo-seed,demo-seed,2026-04-01T09:00:00,2026-05-01T09:00:00
+8,88,other_food,キウイ,mild,口周りの赤み,true,2025-05-14,サンプル小児科 4号院,true,代替食あり,摂取しない,生活管理指導表（ダミー）,2026-04-01,2027-03-31,true,保護者確認済み（ダミー）,demo-seed,demo-seed,2026-04-01T09:00:00,2026-05-01T09:00:00
+9,99,food_advisory,くるみ,severe,口唇腫脹,true,2025-04-25,サンプル小児科 5号院,true,代替食あり,ナッツ類を避ける,生活管理指導表（ダミー）,2026-04-01,2027-03-31,true,保護者確認済み（ダミー）,demo-seed,demo-seed,2026-04-01T09:00:00,2026-05-01T09:00:00
