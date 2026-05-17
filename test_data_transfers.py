@@ -2,6 +2,8 @@ import csv
 import io
 import unittest
 from datetime import date
+from xml.etree import ElementTree as ET
+from zipfile import ZIP_DEFLATED, ZipFile
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -17,6 +19,97 @@ def _csv_bytes(rows):
     writer = csv.writer(buffer, lineterminator="\r\n")
     writer.writerows(rows)
     return buffer.getvalue().encode("utf-8-sig")
+
+
+def _minimal_ninka_workbook():
+    content_types_xml = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+        '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
+        '<Default Extension="xml" ContentType="application/xml"/>'
+        '<Override PartName="/xl/workbook.xml" '
+        'ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>'
+        '<Override PartName="/xl/worksheets/sheet1.xml" '
+        'ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>'
+        '<Override PartName="/xl/worksheets/sheet2.xml" '
+        'ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>'
+        "</Types>"
+    )
+    rels_xml = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+        '<Relationship Id="rId1" '
+        'Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" '
+        'Target="xl/workbook.xml"/>'
+        "</Relationships>"
+    )
+    workbook_xml = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" '
+        'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
+        '<sheets>'
+        '<sheet name="施設情報" sheetId="1" r:id="rId1"/>'
+        '<sheet name="シート４" sheetId="2" r:id="rId2"/>'
+        '</sheets>'
+        '</workbook>'
+    )
+    workbook_rels_xml = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+        '<Relationship Id="rId1" '
+        'Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" '
+        'Target="worksheets/sheet1.xml"/>'
+        '<Relationship Id="rId2" '
+        'Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" '
+        'Target="worksheets/sheet2.xml"/>'
+        '</Relationships>'
+    )
+    facility_sheet_xml = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+        '<sheetData>'
+        '<row r="1"><c r="C1" t="inlineStr"><is><t>更新日時</t></is></c><c r="D1" t="inlineStr"><is><t>年度</t></is></c></row>'
+        '<row r="2"><c r="C2" t="inlineStr"><is><t></t></is></c><c r="D2"><v>2025</v></c></row>'
+        '</sheetData>'
+        '</worksheet>'
+    )
+    sheet4_xml = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+        '<sheetData>'
+        '<row r="25"><c r="H25"><v>0</v></c><c r="L25"><v>0</v></c><c r="P25"><v>0</v></c></row>'
+        '<row r="27"><c r="H27"><v>0</v></c><c r="L27"><v>0</v></c><c r="P27"><v>0</v></c></row>'
+        '<row r="29"><c r="H29"><v>0</v></c><c r="L29"><v>0</v></c><c r="P29"><v>0</v></c></row>'
+        '<row r="31"><c r="H31"><v>0</v></c><c r="L31"><v>0</v></c><c r="P31"><v>0</v></c></row>'
+        '<row r="33"><c r="H33"><v>0</v></c><c r="L33"><v>0</v></c><c r="P33"><v>0</v></c></row>'
+        '<row r="35"><c r="H35"><v>0</v></c><c r="L35"><v>0</v></c><c r="P35"><v>0</v></c></row>'
+        '<row r="37"><c r="H37"><f>H25+H27+H29+H31+H33+H35</f><v>0</v></c><c r="L37"><f>L25+L27+L29+L31+L33+L35</f><v>0</v></c><c r="P37"><f>P25+P27+P29+P31+P33+P35</f><v>0</v></c></row>'
+        '</sheetData>'
+        '</worksheet>'
+    )
+
+    buffer = io.BytesIO()
+    with ZipFile(buffer, mode="w", compression=ZIP_DEFLATED) as archive:
+        archive.writestr("[Content_Types].xml", content_types_xml)
+        archive.writestr("_rels/.rels", rels_xml)
+        archive.writestr("xl/workbook.xml", workbook_xml)
+        archive.writestr("xl/_rels/workbook.xml.rels", workbook_rels_xml)
+        archive.writestr("xl/worksheets/sheet1.xml", facility_sheet_xml)
+        archive.writestr("xl/worksheets/sheet2.xml", sheet4_xml)
+    return buffer.getvalue()
+
+
+def _xlsx_cell_value(content, sheet_path, cell_ref):
+    namespace = {"main": "http://schemas.openxmlformats.org/spreadsheetml/2006/main"}
+    with ZipFile(io.BytesIO(content)) as archive:
+        root = ET.fromstring(archive.read(sheet_path))
+    cell = root.find(f".//main:c[@r='{cell_ref}']", namespace)
+    if cell is None:
+        return ""
+    if cell.attrib.get("t") == "inlineStr":
+        return "".join(node.text or "" for node in cell.findall(".//main:t", namespace))
+    value_node = cell.find("main:v", namespace)
+    return value_node.text if value_node is not None else ""
 
 
 class DataTransferTests(unittest.TestCase):
@@ -83,6 +176,51 @@ class DataTransferTests(unittest.TestCase):
         self.assertIn("表示するデータ", response.text)
         self.assertIn('data-dataset-toggle', response.text)
         self.assertIn('data-dataset-row="families"', response.text)
+        self.assertIn("認可施設帳票入力連携", response.text)
+
+    def test_exports_ninka_workbook_with_child_counts(self):
+        with Session(self.engine) as session:
+            session.add(
+                Child(
+                    last_name="鈴木",
+                    first_name="あお",
+                    last_name_kana="スズキ",
+                    first_name_kana="アオ",
+                    birth_date=date(2025, 5, 1),
+                    enrollment_date=date(2026, 4, 1),
+                    status=ChildStatus.enrolled,
+                    classroom_id=self.classroom_id,
+                    family_id=self.family_id,
+                    extra_data={"allergy": [], "medical_notes": ""},
+                )
+            )
+            session.commit()
+
+        response = self.client.post(
+            "/data-transfers/ninka/export",
+            data={"fiscal_year": "2026"},
+            files={
+                "template_file": (
+                    "ninka_input.xlsx",
+                    _minimal_ninka_workbook(),
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                )
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.headers["content-type"],
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+        self.assertEqual(_xlsx_cell_value(response.content, "xl/worksheets/sheet1.xml", "D2"), "2026")
+        self.assertTrue(_xlsx_cell_value(response.content, "xl/worksheets/sheet1.xml", "C2"))
+        self.assertEqual(_xlsx_cell_value(response.content, "xl/worksheets/sheet2.xml", "H25"), "1")
+        self.assertEqual(_xlsx_cell_value(response.content, "xl/worksheets/sheet2.xml", "L25"), "1")
+        self.assertEqual(_xlsx_cell_value(response.content, "xl/worksheets/sheet2.xml", "P25"), "1")
+        self.assertEqual(_xlsx_cell_value(response.content, "xl/worksheets/sheet2.xml", "H37"), "1")
+        self.assertEqual(_xlsx_cell_value(response.content, "xl/worksheets/sheet2.xml", "L37"), "1")
+        self.assertEqual(_xlsx_cell_value(response.content, "xl/worksheets/sheet2.xml", "P37"), "1")
 
     def test_import_new_child_defaults_blank_status_to_enrolled(self):
         rows = [

@@ -23,6 +23,7 @@ from data_transfer_service import (
 )
 from database import get_session
 from models import ChildStatus, Classroom, DataTransferLog, ParentAccountStatus
+from ninka_transfer_service import build_ninka_xlsx_content, default_fiscal_year
 from time_utils import utc_now
 
 router = APIRouter(prefix="/data-transfers", tags=["data_transfers"])
@@ -87,6 +88,7 @@ def _render_index(
     current_user,
     *,
     preview_result=None,
+    ninka_error: str = "",
     notice: str = "",
     status_code: int = 200,
 ) -> HTMLResponse:
@@ -101,6 +103,8 @@ def _render_index(
             "parent_status_options": list(ParentAccountStatus),
             "logs": _recent_logs(session),
             "preview_result": preview_result,
+            "ninka_default_fiscal_year": default_fiscal_year(),
+            "ninka_error": ninka_error,
             "notice": notice,
         },
         status_code=status_code,
@@ -235,4 +239,46 @@ async def commit_import_file(
     return RedirectResponse(
         url=f"/data-transfers/?notice=imported-{dataset}-{result.create_count}-{result.update_count}",
         status_code=303,
+    )
+
+
+@router.post("/ninka/export")
+async def export_ninka_input(
+    request: Request,
+    template_file: UploadFile = File(...),
+    fiscal_year: int | None = Form(None),
+    session: Session = Depends(get_session),
+    current_user=Depends(get_current_staff_user),
+):
+    require_can_edit(current_user)
+    filename = template_file.filename or "ninka_input.xlsx"
+    if not filename.lower().endswith(".xlsx"):
+        return _render_index(
+            request,
+            session,
+            current_user,
+            ninka_error="認可施設帳票の Excel ファイル（.xlsx）を選択してください。",
+            status_code=400,
+        )
+
+    content = await template_file.read()
+    if not content:
+        return _render_index(
+            request,
+            session,
+            current_user,
+            ninka_error="認可施設帳票ファイルが空です。",
+            status_code=400,
+        )
+
+    try:
+        output, summary = build_ninka_xlsx_content(session, content, fiscal_year=fiscal_year)
+    except ValueError as exc:
+        return _render_index(request, session, current_user, ninka_error=str(exc), status_code=400)
+
+    export_filename = f"hoikuict-ninka-input-{summary.fiscal_year}-{utc_now().strftime('%Y%m%d-%H%M')}.xlsx"
+    return Response(
+        content=output,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{export_filename}"'},
     )

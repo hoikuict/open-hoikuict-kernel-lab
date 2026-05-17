@@ -113,9 +113,10 @@
     </form>
   </section>
 
-  <section class="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-    <h2 class="text-lg font-semibold text-slate-900">インポート</h2>
-    <form method="post" action="/data-transfers/import/classrooms/preview" enctype="multipart/form-data" class="mt-4 space-y-4" data-import-form>
+  <div class="space-y-6">
+    <section class="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+      <h2 class="text-lg font-semibold text-slate-900">インポート</h2>
+      <form method="post" action="/data-transfers/import/classrooms/preview" enctype="multipart/form-data" class="mt-4 space-y-4" data-import-form>
       <label class="block text-sm">
         <span class="mb-1 block font-medium text-slate-700">データ</span>
         <select name="dataset" class="w-full rounded border border-slate-300 px-3 py-2" data-import-dataset>
@@ -214,7 +215,31 @@
       {% endif %}
     </div>
     {% endif %}
-  </section>
+    </section>
+
+    <section class="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+      <h2 class="text-lg font-semibold text-slate-900">認可施設帳票入力連携</h2>
+      {% if ninka_error %}
+      <div class="mt-4 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+        {{ ninka_error }}
+      </div>
+      {% endif %}
+      <form method="post" action="/data-transfers/ninka/export" enctype="multipart/form-data" class="mt-4 space-y-4">
+        <label class="block text-sm">
+          <span class="mb-1 block font-medium text-slate-700">年度</span>
+          <input type="number" name="fiscal_year" min="2000" max="2100" value="{{ ninka_default_fiscal_year }}" class="w-full rounded border border-slate-300 px-3 py-2">
+        </label>
+        <label class="block text-sm">
+          <span class="mb-1 block font-medium text-slate-700">認可施設帳票</span>
+          <input type="file" name="template_file" accept=".xlsx" required class="w-full rounded border border-slate-300 bg-white px-3 py-2">
+        </label>
+        <div class="rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-500">
+          シート4の利用定員数・利用者数・学級数と、施設情報の年度・更新日時を反映します。
+        </div>
+        <button type="submit" class="w-full rounded bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800">帳票へ反映して出力</button>
+      </form>
+    </section>
+  </div>
 </div>
 
 <section class="mt-6 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
