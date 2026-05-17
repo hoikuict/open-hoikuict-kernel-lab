@@ -6,6 +6,8 @@ from uuid import UUID
 
 from fastapi import Depends, HTTPException, Request, Response
 
+from staff_user_service import STAFF_USER_SORT_ORDER_LIMIT
+
 
 class Role(str, Enum):
     VIEW_ONLY = "view_only"
@@ -158,7 +160,7 @@ def get_current_staff_user_record(request: Request, session):
     if staff_user_id is None:
         return None
     user = session.get(User, staff_user_id)
-    if user is None or not user.is_active or user.staff_sort_order >= 200:
+    if user is None or not user.is_active or user.staff_sort_order >= STAFF_USER_SORT_ORDER_LIMIT:
         return None
     return user
 

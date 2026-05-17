@@ -3,11 +3,12 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
-from sqlmodel import Session, select
+from sqlmodel import Session
 
 from auth import Role, clear_staff_cookies, get_current_staff_user, set_staff_cookies
 from database import get_session
 from models import User
+from staff_user_service import list_active_staff_users
 
 
 router = APIRouter(prefix="/staff", tags=["staff-auth"])
@@ -38,11 +39,7 @@ def staff_login_page(
     current_user=Depends(get_current_staff_user),
     session: Session = Depends(get_session),
 ):
-    users = session.exec(
-        select(User)
-        .where(User.is_active.is_(True), User.staff_sort_order < 200)
-        .order_by(User.staff_sort_order, User.display_name, User.email)
-    ).all()
+    users = list_active_staff_users(session)
     return templates.TemplateResponse(
         request,
         "staff_auth/login.html",

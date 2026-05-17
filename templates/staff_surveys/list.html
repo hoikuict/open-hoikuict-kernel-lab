@@ -20,7 +20,7 @@
     <div class="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
       <div>
         <div class="mb-2 flex flex-wrap gap-2">
-          {% if card.answer %}
+          {% if card.is_answered %}
           <span class="rounded-full bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-700">回答済み</span>
           {% else %}
           <span class="rounded-full bg-amber-50 px-3 py-1 text-xs font-medium text-amber-700">未回答</span>
@@ -38,7 +38,7 @@
         </p>
       </div>
       <a href="/staff-surveys/{{ survey.id }}" class="inline-flex rounded bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700">
-        {{ "回答を編集" if card.answer else "回答する" }}
+        {{ "回答を編集" if card.is_answered else "回答する" }}
       </a>
     </div>
   </div>

@@ -27,17 +27,20 @@ from models import (
     SurveyTargetType,
     User,
 )
+from staff_user_service import list_active_staff_users
 from survey_service import (
     answer_value_for_display,
     eligible_staff_users_for_survey,
+    load_existing_survey_answer,
     replace_survey_questions,
     replace_survey_target,
+    resolve_staff_answer_scope,
     response_by_question,
     sanitize_csv_header_label,
     target_label,
     validate_survey_definition,
 )
-from time_utils import ensure_utc, utc_now
+from time_utils import utc_now
 
 
 router = APIRouter(prefix="/surveys", tags=["surveys"])
@@ -56,7 +59,7 @@ def _parse_optional_datetime(raw: str) -> Optional[datetime]:
     if not value:
         return None
     try:
-        return ensure_utc(datetime.fromisoformat(value))
+        return datetime.fromisoformat(value)
     except ValueError:
         return None
 
@@ -79,12 +82,19 @@ def _load_survey(session: Session, survey_id: int) -> Survey:
 def _load_reference_data(session: Session) -> tuple[list[Classroom], list[Child], list[User]]:
     classrooms = session.exec(select(Classroom).order_by(Classroom.display_order, Classroom.id)).all()
     children = session.exec(select(Child).order_by(Child.last_name_kana, Child.first_name_kana)).all()
-    users = session.exec(
-        select(User)
-        .where(User.is_active.is_(True), User.staff_sort_order < 100)
-        .order_by(User.staff_sort_order, User.display_name, User.email)
-    ).all()
+    users = list_active_staff_users(session)
     return classrooms, children, users
+
+
+def _normalize_target_type_for_audience(
+    audience_type: SurveyAudienceType,
+    target_type: SurveyTargetType,
+) -> SurveyTargetType:
+    if audience_type == SurveyAudienceType.staff and target_type == SurveyTargetType.all:
+        return SurveyTargetType.all_staff
+    if audience_type == SurveyAudienceType.parent and target_type == SurveyTargetType.all_staff:
+        return SurveyTargetType.all
+    return target_type
 
 
 def _target_labels(session: Session, surveys: list[Survey]) -> dict[int, str]:
@@ -102,6 +112,26 @@ def _target_labels(session: Session, surveys: list[Survey]) -> dict[int, str]:
         for survey in surveys
         if survey.id is not None
     }
+
+
+def _answer_scope_labels(session: Session, answers: list[SurveyAnswer]) -> dict[int, str]:
+    families = {item.id: item for item in session.exec(select(Family)).all()}
+    children = {item.id: item for item in session.exec(select(Child)).all()}
+    users = {item.id: item for item in session.exec(select(User)).all()}
+    labels: dict[int, str] = {}
+    for answer in answers:
+        if answer.id is None:
+            continue
+        if answer.family_id is not None:
+            family = families.get(answer.family_id)
+            labels[answer.id] = f"世帯: {family.family_name}" if family else "世帯"
+        elif answer.child_id is not None:
+            child = children.get(answer.child_id)
+            labels[answer.id] = f"園児: {child.full_name}" if child else "園児"
+        elif answer.staff_user_id is not None:
+            staff_user = users.get(answer.staff_user_id)
+            labels[answer.id] = f"職員: {staff_user.display_name}" if staff_user else "職員"
+    return labels
 
 
 def _question_specs_from_form(
@@ -242,8 +272,13 @@ def survey_list(
     unanswered_counts: dict[int, int] = {}
     for survey in surveys:
         if survey.audience_type == SurveyAudienceType.staff:
-            target_count = len(eligible_staff_users_for_survey(session, survey))
-            unanswered_counts[survey.id] = max(target_count - len(survey.answers), 0)
+            eligible_users = eligible_staff_users_for_survey(session, survey)
+            unanswered_count = 0
+            for user in eligible_users:
+                scope = resolve_staff_answer_scope(survey, user)
+                if scope is None or load_existing_survey_answer(session, survey, scope) is None:
+                    unanswered_count += 1
+            unanswered_counts[survey.id] = unanswered_count
         else:
             unanswered_counts[survey.id] = 0
 
@@ -342,6 +377,7 @@ def create_survey(
         normalized_target_type = SurveyTargetType(target_type)
     except ValueError:
         normalized_target_type = SurveyTargetType.all if normalized_audience == SurveyAudienceType.parent else SurveyTargetType.all_staff
+    normalized_target_type = _normalize_target_type_for_audience(normalized_audience, normalized_target_type)
 
     target_value = {
         SurveyTargetType.classroom: target_classroom_id,
@@ -447,6 +483,7 @@ def survey_detail(
     survey = _load_survey(session, survey_id)
     labels = _target_labels(session, [survey])
     questions = sorted(survey.questions, key=lambda item: (item.order, item.id or 0))
+    answers = sorted(survey.answers, key=lambda item: item.submitted_at, reverse=True)
     return templates.TemplateResponse(
         request,
         "surveys/detail.html",
@@ -455,7 +492,8 @@ def survey_detail(
             "survey": survey,
             "target_label": labels.get(survey.id, "-"),
             "questions": questions,
-            "answers": sorted(survey.answers, key=lambda item: item.submitted_at, reverse=True),
+            "answers": answers,
+            "answer_scope_labels": _answer_scope_labels(session, answers),
             "response_by_question": response_by_question,
             "answer_value_for_display": answer_value_for_display,
             "current_user": current_user,

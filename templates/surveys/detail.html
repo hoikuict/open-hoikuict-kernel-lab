@@ -90,9 +90,7 @@
           <td class="px-4 py-3">{{ answer.id }}</td>
           <td class="px-4 py-3">{{ answer.submitted_at.strftime("%Y-%m-%d %H:%M") }}</td>
           <td class="px-4 py-3">
-            {% if answer.family_id %}世帯ID: {{ answer.family_id }}{% endif %}
-            {% if answer.child_id %}園児ID: {{ answer.child_id }}{% endif %}
-            {% if answer.staff_user_id %}職員ID: {{ answer.staff_user_id }}{% endif %}
+            {{ answer_scope_labels.get(answer.id, "-") }}
           </td>
           {% for question in questions %}
           <td class="px-4 py-3">{{ answer_value_for_display(question, responses.get(question.id)) }}</td>

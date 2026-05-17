@@ -11,6 +11,7 @@ from sqlmodel import Session, select
 from auth import get_current_staff_user, get_current_staff_user_record
 from database import get_session
 from models import Survey, SurveyAnswer, SurveyAudienceType, SurveyQuestion, SurveyStatus
+from staff_user_service import equivalent_staff_user_ids
 from survey_service import (
     answer_value_for_display,
     closes_soon,
@@ -55,6 +56,7 @@ def _load_staff_survey(session: Session, survey_id: int) -> Survey | None:
 
 
 def _visible_staff_surveys(session: Session, staff_user) -> list[Survey]:
+    staff_user_ids = {str(user_id) for user_id in equivalent_staff_user_ids(session, staff_user.id)}
     surveys = session.exec(
         select(Survey)
         .options(
@@ -71,7 +73,7 @@ def _visible_staff_surveys(session: Session, staff_user) -> list[Survey]:
     return [
         survey
         for survey in surveys
-        if survey_is_open(survey, utc_now()) and survey_matches_staff_targets(survey, staff_user)
+        if survey_is_open(survey, utc_now()) and survey_matches_staff_targets(survey, staff_user, staff_user_ids)
     ]
 
 
@@ -90,11 +92,13 @@ def staff_survey_list(
     for survey in _visible_staff_surveys(session, staff_user):
         scope = resolve_staff_answer_scope(survey, staff_user)
         answer = load_existing_survey_answer(session, survey, scope) if scope else None
+        is_answered = answer is not None
         cards.append(
             {
                 "survey": survey,
                 "answer": answer,
-                "closes_soon": closes_soon(survey) and answer is None,
+                "is_answered": is_answered,
+                "closes_soon": closes_soon(survey) and not is_answered,
             }
         )
 

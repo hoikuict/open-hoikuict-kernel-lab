@@ -26,7 +26,8 @@ from models import (
     SurveyTargetType,
     User,
 )
-from time_utils import ensure_utc, utc_now
+from staff_user_service import equivalent_staff_user_ids, list_active_staff_users
+from time_utils import ensure_utc_from_local, utc_now
 
 
 @dataclass(frozen=True)
@@ -54,8 +55,8 @@ def survey_is_open(survey: Survey, now: datetime | None = None) -> bool:
     current = now or utc_now()
     if survey.status != SurveyStatus.published:
         return False
-    opens_at = ensure_utc(survey.opens_at)
-    closes_at = ensure_utc(survey.closes_at)
+    opens_at = ensure_utc_from_local(survey.opens_at)
+    closes_at = ensure_utc_from_local(survey.closes_at)
     if opens_at and opens_at > current:
         return False
     if closes_at and closes_at < current:
@@ -65,7 +66,7 @@ def survey_is_open(survey: Survey, now: datetime | None = None) -> bool:
 
 def closes_soon(survey: Survey, now: datetime | None = None) -> bool:
     current = now or utc_now()
-    closes_at = ensure_utc(survey.closes_at)
+    closes_at = ensure_utc_from_local(survey.closes_at)
     return bool(closes_at and current <= closes_at <= current + timedelta(days=3))
 
 
@@ -186,26 +187,35 @@ def resolve_parent_answer_scope(
     return None
 
 
-def survey_matches_staff_targets(survey: Survey, staff_user: User) -> bool:
+def survey_matches_staff_targets(
+    survey: Survey,
+    staff_user: User,
+    equivalent_user_ids: set[str] | None = None,
+) -> bool:
     if survey.audience_type != SurveyAudienceType.staff:
         return False
+    target_staff_user_ids = equivalent_user_ids or {str(staff_user.id)}
     for target in survey.targets:
-        if target.target_type == SurveyTargetType.all_staff:
+        if target.target_type in {SurveyTargetType.all, SurveyTargetType.all_staff}:
             return True
         if target.target_type == SurveyTargetType.staff_role and target.target_value == staff_user.staff_role:
             return True
-        if target.target_type == SurveyTargetType.staff_user and target.target_value == str(staff_user.id):
+        if target.target_type == SurveyTargetType.staff_user and target.target_value in target_staff_user_ids:
             return True
     return False
 
 
 def eligible_staff_users_for_survey(session: Session, survey: Survey) -> list[User]:
-    users = session.exec(
-        select(User)
-        .where(User.is_active.is_(True), User.staff_sort_order < 100)
-        .order_by(User.staff_sort_order, User.display_name, User.email)
-    ).all()
-    return [user for user in users if survey_matches_staff_targets(survey, user)]
+    users = list_active_staff_users(session)
+    return [
+        user
+        for user in users
+        if survey_matches_staff_targets(
+            survey,
+            user,
+            {str(user_id) for user_id in equivalent_staff_user_ids(session, user.id)},
+        )
+    ]
 
 
 def resolve_staff_answer_scope(survey: Survey, staff_user: User) -> SurveyAnswerScope | None:
@@ -234,10 +244,22 @@ def load_existing_survey_answer(
             )
         ).first()
     if scope.staff_user_id is not None:
-        return session.exec(
+        answer = session.exec(
             select(SurveyAnswer).where(
                 SurveyAnswer.survey_id == survey.id,
                 SurveyAnswer.staff_user_id == scope.staff_user_id,
+            )
+        ).first()
+        if answer is not None:
+            return answer
+
+        staff_user_ids = equivalent_staff_user_ids(session, scope.staff_user_id)
+        if len(staff_user_ids) <= 1:
+            return None
+        return session.exec(
+            select(SurveyAnswer).where(
+                SurveyAnswer.survey_id == survey.id,
+                SurveyAnswer.staff_user_id.in_(staff_user_ids),
             )
         ).first()
     return None
@@ -265,7 +287,7 @@ def validate_survey_definition(
         errors.append("タイトルを入力してください。")
     if len(title.strip()) > 255:
         errors.append("タイトルは255文字以内で入力してください。")
-    if opens_at and closes_at and ensure_utc(opens_at) >= ensure_utc(closes_at):
+    if opens_at and closes_at and ensure_utc_from_local(opens_at) >= ensure_utc_from_local(closes_at):
         errors.append("公開開始は公開終了より前にしてください。")
 
     if audience_type == SurveyAudienceType.parent:
@@ -536,7 +558,7 @@ def target_label(
     labels: list[str] = []
     for target in survey.targets:
         if target.target_type == SurveyTargetType.all:
-            labels.append("全保護者")
+            labels.append("全職員" if survey.audience_type == SurveyAudienceType.staff else "全保護者")
         elif target.target_type == SurveyTargetType.classroom:
             classroom = classrooms_by_id.get(_parse_optional_int(target.target_value) or -1)
             labels.append(f"クラス: {classroom.name}" if classroom else "クラス指定")
@@ -562,7 +584,11 @@ def unanswered_staff_survey_count(session: Session, staff_user: User) -> int:
     ).all()
     count = 0
     for survey in surveys:
-        if not survey_is_open(survey) or not survey_matches_staff_targets(survey, staff_user):
+        if not survey_is_open(survey) or not survey_matches_staff_targets(
+            survey,
+            staff_user,
+            {str(user_id) for user_id in equivalent_staff_user_ids(session, staff_user.id)},
+        ):
             continue
         scope = resolve_staff_answer_scope(survey, staff_user)
         if scope and load_existing_survey_answer(session, survey, scope) is None:
