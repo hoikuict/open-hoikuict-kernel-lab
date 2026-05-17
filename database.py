@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from datetime import date, timedelta
 
 from sqlalchemy import text
@@ -10,6 +11,7 @@ from time_utils import utc_now
 
 DATABASE_URL = "sqlite:///./hoikuict.db"
 engine = create_engine(DATABASE_URL, echo=False)
+logger = logging.getLogger(__name__)
 
 DEFAULT_CLASSROOMS = [
     ("ひよこ組", 1),
@@ -41,6 +43,10 @@ def _table_columns(table_name: str) -> list[str]:
         return [row[1] for row in result]
 
 
+def _log_migration_skip(migration_name: str, exc: Exception) -> None:
+    logger.warning("Skipping %s migration: %s", migration_name, exc)
+
+
 def _migrate_add_child_columns() -> None:
     try:
         with engine.connect() as conn:
@@ -56,8 +62,8 @@ def _migrate_add_child_columns() -> None:
             if "classroom_id" not in cols:
                 conn.execute(text("ALTER TABLE children ADD COLUMN classroom_id INTEGER REFERENCES classrooms(id)"))
             conn.commit()
-    except Exception:
-        pass
+    except Exception as exc:
+        _log_migration_skip("children column", exc)
 
 
 def _migrate_add_attendance_columns() -> None:
@@ -71,8 +77,8 @@ def _migrate_add_attendance_columns() -> None:
             if "pickup_person" not in cols:
                 conn.execute(text("ALTER TABLE attendance_records ADD COLUMN pickup_person VARCHAR"))
             conn.commit()
-    except Exception:
-        pass
+    except Exception as exc:
+        _log_migration_skip("attendance column", exc)
 
 
 def _migrate_add_daily_contact_columns() -> None:
@@ -92,8 +98,8 @@ def _migrate_add_daily_contact_columns() -> None:
             if "absence_note" not in cols:
                 conn.execute(text("ALTER TABLE daily_contact_entries ADD COLUMN absence_note VARCHAR"))
             conn.commit()
-    except Exception:
-        pass
+    except Exception as exc:
+        _log_migration_skip("daily contact column", exc)
 
 
 def _migrate_add_parent_account_columns() -> None:
@@ -111,8 +117,8 @@ def _migrate_add_parent_account_columns() -> None:
             if "workplace_phone" not in cols:
                 conn.execute(text("ALTER TABLE parent_accounts ADD COLUMN workplace_phone VARCHAR"))
             conn.commit()
-    except Exception:
-        pass
+    except Exception as exc:
+        _log_migration_skip("parent account column", exc)
 
 
 def _migrate_add_family_columns() -> None:
@@ -126,8 +132,8 @@ def _migrate_add_family_columns() -> None:
             if parent_cols and "family_id" not in parent_cols:
                 conn.execute(text("ALTER TABLE parent_accounts ADD COLUMN family_id INTEGER REFERENCES families(id)"))
             conn.commit()
-    except Exception:
-        pass
+    except Exception as exc:
+        _log_migration_skip("family column", exc)
 
 
 def _migrate_add_message_columns() -> None:
@@ -142,8 +148,8 @@ def _migrate_add_message_columns() -> None:
                 if "deleted_by" not in message_cols:
                     conn.execute(text("ALTER TABLE messages ADD COLUMN deleted_by VARCHAR"))
             conn.commit()
-    except Exception:
-        pass
+    except Exception as exc:
+        _log_migration_skip("message column", exc)
 
 
 def _migrate_add_calendar_columns() -> None:
@@ -160,8 +166,8 @@ def _migrate_add_calendar_columns() -> None:
             if user_cols and "staff_sort_order" not in user_cols:
                 conn.execute(text("ALTER TABLE users ADD COLUMN staff_sort_order INTEGER DEFAULT 100"))
             conn.commit()
-    except Exception:
-        pass
+    except Exception as exc:
+        _log_migration_skip("calendar column", exc)
 
 
 def _migrate_survey_tables() -> None:
@@ -751,163 +757,6 @@ def seed_calendar_data() -> None:
             ensure_member(calendar, owner_user, CalendarMemberRole.owner)
             for user in active_users:
                 ensure_member(calendar, user, shared_role_for_user(calendar, user))
-                ensure_preference(calendar, user, display_order=20 + index * 10)
-
-        session.commit()
-        return
-
-        def ensure_user(*, email: str, display_name: str, staff_role: str, staff_sort_order: int) -> User:
-            is_calendar_admin = staff_role == "admin"
-            user = session.exec(select(User).where(User.email == email)).first()
-            if user is None:
-                user = User(
-                    email=email,
-                    display_name=display_name,
-                    timezone="Asia/Tokyo",
-                    locale="ja-JP",
-                    staff_role=staff_role,
-                    staff_sort_order=staff_sort_order,
-                    is_calendar_admin=is_calendar_admin,
-                )
-            else:
-                user.display_name = display_name
-                user.timezone = user.timezone or "Asia/Tokyo"
-                user.locale = user.locale or "ja-JP"
-                user.staff_role = staff_role
-                user.staff_sort_order = staff_sort_order
-                user.is_calendar_admin = is_calendar_admin
-                user.is_active = True
-                user.updated_at = utc_now()
-            session.add(user)
-            session.flush()
-            return user
-
-        def ensure_member(calendar: Calendar, user: User, role: CalendarMemberRole) -> None:
-            member = session.exec(
-                select(CalendarMember).where(
-                    CalendarMember.calendar_id == calendar.id,
-                    CalendarMember.user_id == user.id,
-                )
-            ).first()
-            if member is None:
-                member = CalendarMember(calendar_id=calendar.id, user_id=user.id, role=role)
-            else:
-                member.role = role
-                member.updated_at = utc_now()
-            session.add(member)
-            session.flush()
-
-        def ensure_preference(calendar: Calendar, user: User, *, display_order: int) -> None:
-            preference = session.exec(
-                select(CalendarUserPreference).where(
-                    CalendarUserPreference.calendar_id == calendar.id,
-                    CalendarUserPreference.user_id == user.id,
-                )
-            ).first()
-            if preference is None:
-                preference = CalendarUserPreference(
-                    calendar_id=calendar.id,
-                    user_id=user.id,
-                    is_visible=True,
-                    display_order=display_order,
-                )
-            else:
-                preference.is_visible = True
-                preference.display_order = display_order
-                preference.updated_at = utc_now()
-            session.add(preference)
-            session.flush()
-
-        def membership_count(calendar_id) -> int:
-            return len(
-                session.exec(select(CalendarMember).where(CalendarMember.calendar_id == calendar_id)).all()
-            )
-
-        user_a = ensure_user(email="calendar-a@example.com", display_name="田中先生", is_calendar_admin=True)
-        user_b = ensure_user(email="calendar-b@example.com", display_name="佐藤先生", is_calendar_admin=False)
-        active_users = [user_a, user_b]
-
-        personal_specs = [
-            (user_a, "#2563EB", 10),
-            (user_b, "#DC2626", 10),
-        ]
-        for user, color, display_order in personal_specs:
-            personal_calendar = session.exec(
-                select(Calendar).where(
-                    Calendar.owner_user_id == user.id,
-                    Calendar.is_primary.is_(True),
-                )
-            ).first()
-            if personal_calendar is None:
-                personal_calendar = session.exec(
-                    select(Calendar).where(
-                        Calendar.owner_user_id == user.id,
-                        Calendar.calendar_type == CalendarType.staff_personal,
-                    )
-                ).first()
-            if personal_calendar is None:
-                personal_calendar = Calendar(owner_user_id=user.id)
-            personal_calendar.name = f"{user.display_name}の個人カレンダー"
-            personal_calendar.calendar_type = CalendarType.staff_personal
-            personal_calendar.color = color
-            personal_calendar.description = "職員ごとの個人用カレンダー"
-            personal_calendar.is_primary = True
-            personal_calendar.is_archived = False
-            personal_calendar.updated_at = utc_now()
-            session.add(personal_calendar)
-            session.flush()
-
-            ensure_member(personal_calendar, user, CalendarMemberRole.owner)
-            ensure_preference(personal_calendar, user, display_order=display_order)
-
-            user.default_calendar_id = personal_calendar.id
-            user.updated_at = utc_now()
-            session.add(user)
-
-        rename_map = {
-            "A Shared Team": "施設共用カレンダー",
-            "B Shared Review": "行事共有カレンダー",
-        }
-        facility_calendars = []
-        for calendar in session.exec(select(Calendar)).all():
-            if calendar.name in rename_map:
-                calendar.name = rename_map[calendar.name]
-            if calendar.is_primary:
-                calendar.calendar_type = CalendarType.staff_personal
-            elif membership_count(calendar.id) > 1:
-                calendar.calendar_type = CalendarType.facility_shared
-            if calendar.calendar_type == CalendarType.facility_shared and not calendar.is_archived:
-                facility_calendars.append(calendar)
-            session.add(calendar)
-
-        if not facility_calendars:
-            shared_calendar = Calendar(
-                owner_user_id=user_a.id,
-                name="施設共用カレンダー",
-                calendar_type=CalendarType.facility_shared,
-                color="#059669",
-                description="施設全体で共有するカレンダー",
-                is_primary=False,
-                is_archived=False,
-            )
-            session.add(shared_calendar)
-            session.flush()
-            facility_calendars.append(shared_calendar)
-
-        for index, calendar in enumerate(facility_calendars, start=1):
-            calendar.calendar_type = CalendarType.facility_shared
-            calendar.is_primary = False
-            if not calendar.description:
-                calendar.description = "施設全体で共有するカレンダー"
-            calendar.updated_at = utc_now()
-            session.add(calendar)
-            owner_user = next((item for item in active_users if item.id == calendar.owner_user_id), user_a)
-            if calendar.owner_user_id != owner_user.id:
-                calendar.owner_user_id = owner_user.id
-            ensure_member(calendar, owner_user, CalendarMemberRole.owner)
-            for user in active_users:
-                role = CalendarMemberRole.owner if user.id == owner_user.id else CalendarMemberRole.editor
-                ensure_member(calendar, user, role)
                 ensure_preference(calendar, user, display_order=20 + index * 10)
 
         session.commit()

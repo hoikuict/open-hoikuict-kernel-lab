@@ -1,3 +1,5 @@
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.responses import RedirectResponse
 
@@ -31,7 +33,23 @@ from routers.staff_surveys import router as staff_surveys_router
 from routers.surveys import router as surveys_router
 
 
-app = FastAPI(title="open-hoikuict", version="0.1.0")
+def initialize_application() -> None:
+    create_db_and_tables()
+    seed_classroom_data()
+    seed_sample_data()
+    bootstrap_family_records()
+    bootstrap_health_records()
+    seed_parent_portal_data()
+    seed_calendar_data()
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    initialize_application()
+    yield
+
+
+app = FastAPI(title="open-hoikuict", version="0.1.0", lifespan=lifespan)
 app.include_router(classrooms_router)
 app.include_router(data_transfers_router)
 app.include_router(families_router)
@@ -51,18 +69,6 @@ app.include_router(daily_contacts_router)
 app.include_router(staff_rooms_router)
 app.include_router(surveys_router)
 app.include_router(staff_surveys_router)
-
-
-@app.on_event("startup")
-def on_startup():
-    create_db_and_tables()
-    seed_classroom_data()
-    seed_sample_data()
-    bootstrap_family_records()
-    bootstrap_health_records()
-    seed_parent_portal_data()
-    seed_calendar_data()
-
 
 @app.get("/")
 def root():
