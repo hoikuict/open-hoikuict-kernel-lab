@@ -29,7 +29,6 @@ nav:
   - セキュリティ最低ライン: security.md
   - 個人情報とダミーデータ: privacy.md
   - デモデータ: demo-data.md
-  - 延長保育料金仕様: extended-care-fee-spec.md
   - 園内運用テンプレ: templates.md
   - リリース前チェック: release-checklist.md
   - ライセンス: license.md
