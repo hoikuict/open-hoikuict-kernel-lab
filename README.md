@@ -71,6 +71,7 @@ uvicorn main:app --reload
 - [セキュリティ最低ライン](docs/security.md)
 - [個人情報・ダミーデータ方針](docs/privacy.md)
 - [デモデータ仕様](docs/demo-data.md)
+- [職員有給管理機能仕様](docs/paid-leave-management-spec.md)
 - [FAQ](docs/faq.md)
 
 ## ライセンス
