@@ -13,6 +13,8 @@ theme:
     - toc.integrate
     - search.suggest
     - search.highlight
+extra_css:
+  - stylesheets/extra.css
 plugins:
   - search
 markdown_extensions:

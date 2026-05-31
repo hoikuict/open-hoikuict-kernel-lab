@@ -1,10 +1,11 @@
 # open-hoikuict
 
 ## 現場で確かめながら育てる、保育園のためのICT
-<div class="home-button">
-  <a class="home-button-primary" href="https://demo.hoikuict.net/">デモサイト</a>
-  <a class="home-button" href="https://hoiku-docs-demo.hoikuict.net/">ドキュメントデモ</a>
-  <a class="home-button" href="https://plan-writer.hoikuict.net/">指導案作成ツール</a>
+
+<div class="home-actions">
+  <a class="home-button home-button-primary" href="https://demo.hoikuict.net/">デモサイト</a>
+  <a class="home-button home-button-secondary" href="https://hoiku-docs-demo.hoikuict.net/">ドキュメントデモ</a>
+  <a class="home-button home-button-secondary" href="https://plan-writer.hoikuict.net/">指導案作成ツール</a>
 </div>
 
 open-hoikuict は、園児名簿、家庭・保護者管理、登降園、保護者からの日次連絡、出欠確認、園内連絡を中心に、保育現場の運用を少しずつ整理していくためのオープンなプロジェクトです。
