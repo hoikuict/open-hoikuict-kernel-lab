@@ -185,7 +185,7 @@ class AttendanceChecksTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 403)
 
-    def test_alarm_is_created_and_auto_cleared_when_condition_is_resolved(self):
+    def test_alarm_is_not_recalculated_by_list_get(self):
         response = self.client.post(
             f"/attendance-checks/{self.child_id}/verification",
             data={
@@ -223,8 +223,25 @@ class AttendanceChecksTests(unittest.TestCase):
             alarm_state = session.exec(select(AttendanceAlarmState)).first()
             alarm_history = session.exec(select(AttendanceAlarmHistory)).all()
 
-        self.assertFalse(alarm_state.is_active)
-        self.assertEqual(len(alarm_history), 2)
+        self.assertTrue(alarm_state.is_active)
+        self.assertEqual(len(alarm_history), 1)
+
+    def test_invalid_date_is_rejected_without_creating_verification(self):
+        response = self.client.post(
+            f"/attendance-checks/{self.child_id}/verification",
+            data={
+                "date": "not-a-date",
+                "status": "present",
+                "layout": "flat",
+                "filter": "all",
+                "classroom_id": "",
+            },
+        )
+
+        self.assertEqual(response.status_code, 400)
+        with Session(self.engine) as session:
+            verification = session.exec(select(AttendanceVerification)).first()
+        self.assertIsNone(verification)
 
 
 if __name__ == "__main__":

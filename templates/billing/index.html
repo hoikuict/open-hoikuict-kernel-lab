@@ -140,7 +140,9 @@
           <td class="px-5 py-3 font-mono text-xs text-slate-500">{{ row.export.content_hash[:16] }}...</td>
           <td class="px-5 py-3">
             <div class="flex flex-wrap gap-2">
+              {% if current_user and current_user.is_admin %}
               <a href="/billing/zengin/exports/{{ row.export.id }}/download" class="rounded border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50">ダウンロード</a>
+              {% endif %}
               {% if current_user and current_user.can_edit and row.export.result_imported_at is none and row.export.status.value in ["created", "downloaded"] %}
               <form method="post" action="/billing/zengin/exports/{{ row.export.id }}/import-paid-demo">
                 <button type="submit" class="rounded border border-emerald-300 px-3 py-1.5 text-xs font-medium text-emerald-700 hover:bg-emerald-50">全件振替済みで取込</button>

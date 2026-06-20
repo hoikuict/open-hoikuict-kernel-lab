@@ -28,6 +28,7 @@ from calendar_service import (
     list_occurrences,
     local_today,
     localize_datetime,
+    normalize_utc,
     parse_iso_date,
     parse_iso_datetime,
     rebuild_notification_jobs_for_event,
@@ -1632,7 +1633,10 @@ async def update_event(
             activity_summary=f"{_loggable_event_label(override.title or event.title, override.visibility or event.visibility)}を更新しました。",
         )
 
-    if normalized_scope == "following" and target_original_start != event.start_at:
+    target_original_start_utc = normalize_utc(target_original_start)
+    event_start_utc = normalize_utc(event.start_at)
+
+    if normalized_scope == "following" and target_original_start_utc != event_start_utc:
         recurrence_rule = session.get(RecurrenceRule, event.recurrence_rule_id) if event.recurrence_rule_id else None
         if recurrence_rule is None:
             raise HTTPException(status_code=400, detail="繰り返し設定が見つかりません。")
@@ -1836,7 +1840,10 @@ async def delete_event(
     recurrence_rule = session.get(RecurrenceRule, event.recurrence_rule_id) if event.recurrence_rule_id else None
     if recurrence_rule is None:
         raise HTTPException(status_code=400, detail="繰り返し設定が見つかりません。")
-    if target_original_start == event.start_at:
+    target_original_start_utc = normalize_utc(target_original_start)
+    event_start_utc = normalize_utc(event.start_at)
+
+    if target_original_start_utc == event_start_utc:
         event.is_deleted = True
         event.status = EventLifecycleStatus.cancelled
         event.updated_at = utc_now()

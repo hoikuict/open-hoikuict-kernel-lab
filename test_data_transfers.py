@@ -281,6 +281,20 @@ class DataTransferTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn("家庭IDの家庭名と一致しません", response.text)
 
+    def test_import_rejects_duplicate_headers(self):
+        rows = [
+            ["ID", "クラス名", "クラス名", "表示順"],
+            ["", "ひよこ組", "うさぎ組", "1"],
+        ]
+
+        response = self.client.post(
+            "/data-transfers/import/classrooms/preview",
+            files={"file": ("classrooms.csv", _csv_bytes(rows), "text/csv")},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("列名が重複しています", response.text)
+
 
 if __name__ == "__main__":
     unittest.main()

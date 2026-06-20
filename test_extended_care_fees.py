@@ -12,6 +12,7 @@ from extended_care_fee_service import (
     adjust_charge,
     calculate_charge,
     recalculate_attendance_charge,
+    recalculate_period,
 )
 from models import (
     AttendanceRecord,
@@ -249,6 +250,27 @@ class ExtendedCareFeeTests(unittest.TestCase):
             follow_redirects=False,
         )
         self.assertEqual(recalc_response.status_code, 403)
+
+    def test_recalculate_period_counts_only_changed_charges(self):
+        with Session(self.engine) as session:
+            record = AttendanceRecord(
+                child_id=self.child_id,
+                attendance_date=date(2026, 3, 2),
+                check_in_at=datetime(2026, 3, 2, 9, 0),
+                check_out_at=datetime(2026, 3, 2, 18, 6),
+            )
+            session.add(record)
+            session.flush()
+            recalculate_attendance_charge(session, record)
+            session.commit()
+
+            first_count = recalculate_period(session, date(2026, 3, 1), date(2026, 3, 31))
+            record.check_out_at = datetime(2026, 3, 2, 18, 21)
+            session.add(record)
+            changed_count = recalculate_period(session, date(2026, 3, 1), date(2026, 3, 31))
+
+        self.assertEqual(first_count, 0)
+        self.assertEqual(changed_count, 1)
 
 
 if __name__ == "__main__":

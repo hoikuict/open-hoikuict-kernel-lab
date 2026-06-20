@@ -411,6 +411,9 @@ def parse_import_file(dataset: str, filename: str, content: bytes) -> ParsedImpo
 
     headers = [_normalize_header(item) for item in matrix[0]]
     errors: list[TransferMessage] = []
+    duplicate_headers = sorted({header for header in headers if header and headers.count(header) > 1})
+    for header in duplicate_headers:
+        errors.append(TransferMessage(1, header, "", "列名が重複しています。"))
     for expected_header in definition.headers:
         if expected_header not in headers:
             errors.append(TransferMessage(1, expected_header, "", "必須列がありません。"))

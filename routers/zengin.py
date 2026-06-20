@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from fastapi.responses import Response
 from sqlmodel import Session
 
-from auth import get_current_staff_user, require_can_edit
+from auth import get_current_staff_user, require_admin, require_can_edit
 from database import get_session
 from zengin_service import (
     ZenginError,
@@ -43,6 +43,7 @@ def download_export(
     session: Session = Depends(get_session),
     current_user=Depends(get_current_staff_user),
 ):
+    require_admin(current_user)
     try:
         file_bytes = build_zengin_file(session, export_id)
         mark_zengin_export_downloaded(session, export_id)

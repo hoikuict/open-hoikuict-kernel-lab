@@ -291,6 +291,44 @@ class SurveyFeatureTests(unittest.TestCase):
         self.assertIn("職員アンケート", list_response.text)
         self.assertIn("回答済み", list_response.text)
 
+    def test_duplicate_staff_can_open_survey_targeted_to_canonical_user(self):
+        with Session(self.engine) as session:
+            survey = Survey(
+                title="佐藤先生だけのアンケート",
+                status=SurveyStatus.published,
+                audience_type=SurveyAudienceType.staff,
+                answer_unit=SurveyAnswerUnit.staff_user,
+            )
+            session.add(survey)
+            session.flush()
+            session.add(
+                SurveyTarget(
+                    survey_id=survey.id,
+                    target_type=SurveyTargetType.staff_user,
+                    target_value=str(self.staff_user_id),
+                )
+            )
+            session.add(
+                SurveyQuestion(
+                    survey_id=survey.id,
+                    order=1,
+                    question_type=QuestionType.yes_no,
+                    label="確認しましたか",
+                    is_required=True,
+                )
+            )
+            session.commit()
+            targeted_survey_id = survey.id
+
+        self._login_staff(self.duplicate_staff_user_id)
+        list_response = self.client.get("/staff-surveys/")
+        self.assertEqual(list_response.status_code, 200)
+        self.assertIn("佐藤先生だけのアンケート", list_response.text)
+
+        detail_response = self.client.get(f"/staff-surveys/{targeted_survey_id}")
+        self.assertEqual(detail_response.status_code, 200)
+        self.assertIn("確認しましたか", detail_response.text)
+
     def test_staff_can_create_survey_from_management_form(self):
         response = self.client.post(
             "/surveys/",

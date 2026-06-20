@@ -80,8 +80,8 @@ def _parse_target_date(raw: Optional[str]) -> date:
         return date.today()
     try:
         return date.fromisoformat(raw)
-    except ValueError:
-        return date.today()
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="日付は YYYY-MM-DD 形式で指定してください") from exc
 
 
 def _parse_layout(raw: Optional[str]) -> str:
@@ -194,17 +194,6 @@ def _load_rows(
     record_by_child_id = {record.child_id: record for record in records}
     entry_by_child_id = {entry.child_id: entry for entry in entries}
     verification_by_child_id = {verification.child_id: verification for verification in verifications}
-
-    for child_id in child_ids:
-        sync_attendance_alarm(
-            session,
-            child_id=child_id,
-            target_date=target_day,
-            entry=entry_by_child_id.get(child_id),
-            record=record_by_child_id.get(child_id),
-            verification=verification_by_child_id.get(child_id),
-        )
-    session.commit()
 
     alarm_states = session.exec(
         select(AttendanceAlarmState).where(

@@ -32,6 +32,23 @@ def _parse_optional_datetime(raw: str) -> Optional[datetime]:
         return None
 
 
+def _target_id(raw: Optional[str]) -> Optional[int]:
+    if not raw:
+        return None
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        return None
+
+
+def _parse_publish_window(publish_start_at: str, publish_end_at: str) -> tuple[Optional[datetime], Optional[datetime]]:
+    start_at = _parse_optional_datetime(publish_start_at)
+    end_at = _parse_optional_datetime(publish_end_at)
+    if start_at and end_at and start_at > end_at:
+        raise HTTPException(status_code=400, detail="公開終了日時は公開開始日時以降にしてください。")
+    return start_at, end_at
+
+
 def _load_notice(session: Session, notice_id: int) -> Notice:
     notice = session.exec(
         select(Notice)
@@ -52,10 +69,12 @@ def _target_label(notice: Notice, classrooms_by_id: dict[int, Classroom], childr
         if target.target_type == NoticeTargetType.all:
             labels.append("全保護者")
         elif target.target_type == NoticeTargetType.classroom:
-            classroom = classrooms_by_id.get(int(target.target_value)) if target.target_value else None
+            classroom_id = _target_id(target.target_value)
+            classroom = classrooms_by_id.get(classroom_id) if classroom_id is not None else None
             labels.append(f"クラス: {classroom.name}" if classroom else "クラス指定")
         elif target.target_type == NoticeTargetType.child:
-            child = children_by_id.get(int(target.target_value)) if target.target_value else None
+            child_id = _target_id(target.target_value)
+            child = children_by_id.get(child_id) if child_id is not None else None
             labels.append(f"園児: {child.full_name}" if child else "園児指定")
     return " / ".join(labels)
 
@@ -202,14 +221,15 @@ def create_notice(
         normalized_target_type = NoticeTargetType(target_type)
     except ValueError:
         normalized_target_type = NoticeTargetType.all
+    publish_start, publish_end = _parse_publish_window(publish_start_at, publish_end_at)
 
     notice = Notice(
         title=title.strip(),
         body=body.strip(),
         priority=normalized_priority,
         status=normalized_status,
-        publish_start_at=_parse_optional_datetime(publish_start_at),
-        publish_end_at=_parse_optional_datetime(publish_end_at),
+        publish_start_at=publish_start,
+        publish_end_at=publish_end,
         created_by=current_user.name,
     )
     session.add(notice)
@@ -291,13 +311,14 @@ def update_notice(
         normalized_target_type = NoticeTargetType(target_type)
     except ValueError:
         normalized_target_type = NoticeTargetType.all
+    publish_start, publish_end = _parse_publish_window(publish_start_at, publish_end_at)
 
     notice.title = title.strip()
     notice.body = body.strip()
     notice.priority = normalized_priority
     notice.status = normalized_status
-    notice.publish_start_at = _parse_optional_datetime(publish_start_at)
-    notice.publish_end_at = _parse_optional_datetime(publish_end_at)
+    notice.publish_start_at = publish_start
+    notice.publish_end_at = publish_end
     notice.updated_at = utc_now()
     session.add(notice)
     _upsert_targets(session, notice, normalized_target_type, target_classroom_id, target_child_id)

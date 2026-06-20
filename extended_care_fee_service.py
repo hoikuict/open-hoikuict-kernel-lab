@@ -279,10 +279,30 @@ def recalculate_period(
         before = session.exec(
             select(ExtendedCareCharge).where(ExtendedCareCharge.attendance_record_id == record.id)
         ).first()
+        before_snapshot = _charge_recalculation_snapshot(before)
         charge = recalculate_attendance_charge(session, record, include_locked=include_locked)
-        if charge is not None and (before is None or before.status not in LOCKED_STATUSES or include_locked):
+        if charge is not None and _charge_recalculation_snapshot(charge) != before_snapshot:
             updated += 1
     return updated
+
+
+def _charge_recalculation_snapshot(charge: Optional[ExtendedCareCharge]) -> tuple | None:
+    if charge is None:
+        return None
+    return (
+        charge.rule_id,
+        charge.charge_start_at,
+        charge.actual_check_out_at,
+        charge.extended_minutes,
+        charge.billable_units,
+        charge.auto_amount,
+        charge.adjustment_amount,
+        charge.final_amount,
+        charge.status,
+        charge.adjustment_reason,
+        charge.confirmed_by,
+        charge.confirmed_at,
+    )
 
 
 def confirm_charge(charge: ExtendedCareCharge, staff_name: str) -> None:

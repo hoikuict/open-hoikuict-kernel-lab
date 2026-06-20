@@ -55,8 +55,19 @@ def _load_staff_survey(session: Session, survey_id: int) -> Survey | None:
     ).first()
 
 
+def _equivalent_staff_user_id_strings(session: Session, staff_user) -> set[str]:
+    return {str(user_id) for user_id in equivalent_staff_user_ids(session, staff_user.id)}
+
+
+def _staff_can_access_survey(session: Session, survey: Survey, staff_user) -> bool:
+    return survey_is_open(survey, utc_now()) and survey_matches_staff_targets(
+        survey,
+        staff_user,
+        _equivalent_staff_user_id_strings(session, staff_user),
+    )
+
+
 def _visible_staff_surveys(session: Session, staff_user) -> list[Survey]:
-    staff_user_ids = {str(user_id) for user_id in equivalent_staff_user_ids(session, staff_user.id)}
     surveys = session.exec(
         select(Survey)
         .options(
@@ -73,7 +84,7 @@ def _visible_staff_surveys(session: Session, staff_user) -> list[Survey]:
     return [
         survey
         for survey in surveys
-        if survey_is_open(survey, utc_now()) and survey_matches_staff_targets(survey, staff_user, staff_user_ids)
+        if _staff_can_access_survey(session, survey, staff_user)
     ]
 
 
@@ -127,7 +138,7 @@ def staff_survey_form(
         return _login_redirect(request)
 
     survey = _load_staff_survey(session, survey_id)
-    if not survey or not survey_is_open(survey, utc_now()) or not survey_matches_staff_targets(survey, staff_user):
+    if not survey or not _staff_can_access_survey(session, survey, staff_user):
         raise HTTPException(status_code=404, detail="アンケートが見つかりません")
     scope = resolve_staff_answer_scope(survey, staff_user)
     answer = load_existing_survey_answer(session, survey, scope) if scope else None
@@ -161,7 +172,7 @@ async def save_staff_survey_answer(
         return _login_redirect(request)
 
     survey = _load_staff_survey(session, survey_id)
-    if not survey or not survey_is_open(survey, utc_now()) or not survey_matches_staff_targets(survey, staff_user):
+    if not survey or not _staff_can_access_survey(session, survey, staff_user):
         raise HTTPException(status_code=404, detail="アンケートが見つかりません")
     scope = resolve_staff_answer_scope(survey, staff_user)
     if scope is None:

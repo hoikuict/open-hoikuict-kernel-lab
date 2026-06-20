@@ -6,7 +6,8 @@ from fastapi.testclient import TestClient
 from sqlalchemy.pool import StaticPool
 from sqlmodel import SQLModel, Session, create_engine, select
 
-from models import Child, ChildAllergy, ChildHealthProfile, ChildStatus, Classroom, Family, HealthCheckRecord
+from child_health_service import build_health_check_chart_records
+from models import Child, ChildAllergy, ChildHealthProfile, ChildStatus, Classroom, Family, HealthCheckRecord, HealthCheckType
 import routers.child_health as child_health_module
 
 
@@ -113,6 +114,27 @@ class ChildHealthRouterTests(unittest.TestCase):
 
         self.assertIsNotNone(record)
         self.assertEqual(record.doctor_name, "園医")
+
+    def test_chart_records_keep_same_day_different_check_types(self):
+        records = [
+            HealthCheckRecord(
+                child_id=self.child_id,
+                check_type=HealthCheckType.entrance,
+                checked_at=date(2026, 4, 1),
+                height_cm=97.1,
+            ),
+            HealthCheckRecord(
+                child_id=self.child_id,
+                check_type=HealthCheckType.periodic,
+                checked_at=date(2026, 4, 1),
+                height_cm=98.4,
+            ),
+        ]
+
+        chart_records = build_health_check_chart_records(records, range_key="all")
+
+        self.assertEqual(len(chart_records), 2)
+        self.assertEqual({record.check_type for record in chart_records}, {HealthCheckType.entrance, HealthCheckType.periodic})
 
     def test_view_only_cannot_post_health_profile(self):
         response = self.client.post(

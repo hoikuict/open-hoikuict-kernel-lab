@@ -2,10 +2,13 @@ import unittest
 from datetime import date
 from decimal import Decimal
 
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.pool import StaticPool
 from sqlmodel import SQLModel, Session, create_engine, select
 
+from auth import Role, StaffUser
 from billing_calculation_service import BillingCalculationError, apply_proration_rounding, validate_charge_amount
 from models import (
     BillingChargeSourceType,
@@ -21,8 +24,11 @@ from models import (
     MealFeeRule,
     MealFeeProrationPolicy,
     ProrationRounding,
+    ZenginExport,
     ZenginExportLine,
+    ZenginExportStatus,
 )
+import routers.zengin as zengin_router_module
 from zengin_service import (
     ParsedResultRecord,
     ZenginError,
@@ -46,6 +52,7 @@ class BillingZenginTests(unittest.TestCase):
             poolclass=StaticPool,
         )
         SQLModel.metadata.create_all(self.engine)
+        self.current_user = StaffUser(role=Role.ADMIN, name="園長")
 
     def tearDown(self):
         self.engine.dispose()
@@ -104,6 +111,21 @@ class BillingZenginTests(unittest.TestCase):
             session.add(claim)
             session.commit()
             return cycle.id, profile.customer_number
+
+    def _zengin_client(self):
+        app = FastAPI()
+        app.include_router(zengin_router_module.router)
+
+        def override_get_session():
+            with Session(self.engine) as session:
+                yield session
+
+        def override_get_current_staff_user():
+            return self.current_user
+
+        app.dependency_overrides[zengin_router_module.get_session] = override_get_session
+        app.dependency_overrides[zengin_router_module.get_current_staff_user] = override_get_current_staff_user
+        return TestClient(app)
 
     def test_unique_constraints_for_year_month_and_customer_number(self):
         with Session(self.engine) as session:
@@ -168,6 +190,31 @@ class BillingZenginTests(unittest.TestCase):
             data_record = records[1].decode("cp932")
             self.assertEqual(data_record[91:111], customer_number)
             self.assertTrue(data_record[91:111].isdigit())
+
+    def test_zengin_download_requires_admin(self):
+        cycle_id, _ = self._seed_exportable_claim()
+        with Session(self.engine) as session:
+            export = create_zengin_export(session, cycle_id, created_by="tester")
+            export_id = export.id
+
+        client = self._zengin_client()
+        self.current_user = StaffUser(role=Role.CAN_EDIT, name="一般職員")
+        forbidden = client.get(f"/billing/zengin/exports/{export_id}/download")
+        self.assertEqual(forbidden.status_code, 403)
+
+        with Session(self.engine) as session:
+            export = session.get(ZenginExport, export_id)
+            self.assertEqual(export.status, ZenginExportStatus.created)
+
+        self.current_user = StaffUser(role=Role.ADMIN, name="園長")
+        allowed = client.get(f"/billing/zengin/exports/{export_id}/download")
+        self.assertEqual(allowed.status_code, 200)
+
+        with Session(self.engine) as session:
+            export = session.get(ZenginExport, export_id)
+            self.assertEqual(export.status, ZenginExportStatus.downloaded)
+
+        client.close()
 
     def test_result_parser_removes_crlf_before_record_validation_and_checks_trailer(self):
         cycle_id, customer_number = self._seed_exportable_claim()

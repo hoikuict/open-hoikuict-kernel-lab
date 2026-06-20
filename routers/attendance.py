@@ -14,6 +14,7 @@ from sqlalchemy.orm import selectinload
 from sqlmodel import Session, select
 
 from auth import get_current_staff_user, require_can_edit
+from attendance_checks_service import sync_attendance_alarm
 from database import get_session
 from extended_care_fee_service import charge_status_label, recalculate_attendance_charge
 from models import AttendanceRecord, Child, ChildStatus, Classroom, ExtendedCareCharge, ExtendedCareChargeStatus
@@ -32,6 +33,9 @@ VALID_SORT_FIELDS = {
     "planned_pickup_time",
 }
 VALID_SORT_ORDERS = {"asc", "desc"}
+NOTICE_MESSAGES = {
+    "export_admin_required": "CSV/Excel出力は管理者のみ利用できます。",
+}
 
 
 @dataclass
@@ -120,8 +124,8 @@ def _parse_target_date(raw: Optional[str]) -> date:
         return date.today()
     try:
         return date.fromisoformat(raw)
-    except ValueError:
-        return date.today()
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="日付は YYYY-MM-DD 形式で指定してください") from exc
 
 
 def _parse_optional_date(raw: Optional[str]) -> Optional[date]:
@@ -129,8 +133,8 @@ def _parse_optional_date(raw: Optional[str]) -> Optional[date]:
         return None
     try:
         return date.fromisoformat(raw)
-    except ValueError:
-        return None
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="日付は YYYY-MM-DD 形式で指定してください") from exc
 
 
 def _parse_optional_time(raw: Optional[str]) -> Optional[time]:
@@ -499,6 +503,16 @@ def _build_query_string(filters: AttendanceFilterParams) -> str:
     return urlencode(filters.query_params())
 
 
+def _notice_message(notice: Optional[str]) -> str:
+    return NOTICE_MESSAGES.get(notice or "", "")
+
+
+def _redirect_with_notice(request: Request, notice: str) -> RedirectResponse:
+    params = dict(request.query_params)
+    params["notice"] = notice
+    return RedirectResponse(url=f"/attendance?{urlencode(params)}", status_code=303)
+
+
 def _build_redirect_url(day: date, return_query: Optional[str]) -> str:
     query = return_query or urlencode({"start_date": day.isoformat(), "end_date": day.isoformat()})
     return f"/attendance?{query}" if query else "/attendance"
@@ -611,6 +625,7 @@ def attendance_list(
     time_to: Optional[str] = Query(default=None),
     sort_by: Optional[str] = Query(default="attendance_date"),
     sort_order: Optional[str] = Query(default="asc"),
+    notice: Optional[str] = Query(default=None),
     session: Session = Depends(get_session),
     current_user=Depends(get_current_staff_user),
 ):
@@ -638,6 +653,7 @@ def attendance_list(
             "rows": rows,
             "filters": filters,
             "current_query_string": _build_query_string(filters),
+            "notice_message": _notice_message(notice),
             "current_user": current_user,
             "result_count": summary["result_count"],
             "unique_children_count": summary["unique_children_count"],
@@ -669,6 +685,7 @@ def attendance_list(
 
 @router.get("/export.csv")
 def export_attendance_csv(
+    request: Request,
     target_date: Optional[str] = Query(default=None, alias="date"),
     start_date: Optional[str] = Query(default=None),
     end_date: Optional[str] = Query(default=None),
@@ -680,7 +697,11 @@ def export_attendance_csv(
     sort_by: Optional[str] = Query(default="attendance_date"),
     sort_order: Optional[str] = Query(default="asc"),
     session: Session = Depends(get_session),
+    current_user=Depends(get_current_staff_user),
 ):
+    if not current_user.is_admin:
+        return _redirect_with_notice(request, "export_admin_required")
+
     filters = _build_filters(
         target_date=target_date,
         start_date=start_date,
@@ -705,6 +726,7 @@ def export_attendance_csv(
 
 @router.get("/export.xlsx")
 def export_attendance_xlsx(
+    request: Request,
     target_date: Optional[str] = Query(default=None, alias="date"),
     start_date: Optional[str] = Query(default=None),
     end_date: Optional[str] = Query(default=None),
@@ -716,7 +738,11 @@ def export_attendance_xlsx(
     sort_by: Optional[str] = Query(default="attendance_date"),
     sort_order: Optional[str] = Query(default="asc"),
     session: Session = Depends(get_session),
+    current_user=Depends(get_current_staff_user),
 ):
+    if not current_user.is_admin:
+        return _redirect_with_notice(request, "export_admin_required")
+
     filters = _build_filters(
         target_date=target_date,
         start_date=start_date,
@@ -771,6 +797,8 @@ def check_in(
 
     record.updated_at = now
     session.add(record)
+    session.flush()
+    sync_attendance_alarm(session, child_id=child_id, target_date=day, record=record, now=now)
     session.commit()
 
     return RedirectResponse(url=_build_redirect_url(day, return_query), status_code=303)
@@ -811,6 +839,7 @@ def check_out(
     session.add(record)
     session.flush()
     recalculate_attendance_charge(session, record)
+    sync_attendance_alarm(session, child_id=child_id, target_date=day, record=record, now=now)
     session.commit()
 
     return RedirectResponse(url=_build_redirect_url(day, return_query), status_code=303)

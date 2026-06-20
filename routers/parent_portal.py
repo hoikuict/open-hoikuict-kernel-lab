@@ -78,8 +78,8 @@ def _parse_target_date(raw: Optional[str]) -> date:
         return date.today()
     try:
         return date.fromisoformat(raw)
-    except ValueError:
-        return date.today()
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="日付は YYYY-MM-DD 形式で指定してください") from exc
 
 
 def _parse_optional_int(raw: Optional[str]) -> Optional[int]:

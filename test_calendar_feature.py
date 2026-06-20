@@ -1,6 +1,6 @@
-import json
 import unittest
-from datetime import datetime, timedelta
+import json
+from datetime import datetime, timedelta, timezone
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -546,6 +546,48 @@ class CalendarFeatureTests(unittest.TestCase):
             follow_redirects=False,
         )
         self.assertEqual(update_response.status_code, 400)
+
+    def test_following_delete_from_first_occurrence_deletes_series_master(self):
+        self._login(self.user_a_id)
+        start_value = datetime(2026, 4, 14, 9, 0).strftime("%Y-%m-%dT%H:%M")
+        end_value = datetime(2026, 4, 14, 10, 0).strftime("%Y-%m-%dT%H:%M")
+        create_response = self.client.post(
+            "/events",
+            data={
+                "calendar_id": str(self.a_personal_id),
+                "title": "毎朝の確認",
+                "timezone": "Asia/Tokyo",
+                "start_value": start_value,
+                "end_value": end_value,
+                "recurrence_mode": "daily",
+                "recurrence_interval": "1",
+                "mode": "day",
+                "anchor_date": "2026-04-14",
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(create_response.status_code, 303)
+
+        with Session(self.engine) as session:
+            event = session.exec(select(Event).where(Event.title == "毎朝の確認")).first()
+            original_start_at = event.start_at.replace(tzinfo=timezone.utc).isoformat()
+
+        delete_response = self.client.post(
+            f"/events/{event.id}/delete",
+            data={
+                "scope": "following",
+                "original_start_at": original_start_at,
+                "mode": "day",
+                "anchor_date": "2026-04-14",
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(delete_response.status_code, 303)
+
+        with Session(self.engine) as session:
+            event = session.get(Event, event.id)
+
+        self.assertTrue(event.is_deleted)
 
     def test_admin_can_archive_and_restore_shared_calendar(self):
         self._login(self.user_a_id)

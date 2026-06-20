@@ -260,12 +260,7 @@ def build_health_check_chart_records(
         for record in records
         if record.check_type in GRAPH_CHECK_TYPES and (since_date is None or record.checked_at >= since_date)
     ]
-    latest_by_date: dict[date, HealthCheckRecord] = {}
-    for record in filtered:
-        current = latest_by_date.get(record.checked_at)
-        if current is None or (record.updated_at, record.id or 0) > (current.updated_at, current.id or 0):
-            latest_by_date[record.checked_at] = record
-    return sorted(latest_by_date.values(), key=lambda item: (item.checked_at, item.id or 0))
+    return sorted(filtered, key=lambda item: (item.checked_at, item.check_type.value, item.id or 0))
 
 
 def build_measurement_chart_payload(records: Iterable[HealthCheckRecord]) -> dict[str, list[object]]:

@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy.pool import StaticPool
 from sqlmodel import SQLModel, Session, create_engine
 
+from auth import Role, StaffUser
 from models import AttendanceRecord, Child, ChildStatus, Classroom
 import routers.attendance as attendance_module
 
@@ -28,7 +29,13 @@ class AttendanceReportTests(unittest.TestCase):
             with Session(self.engine) as session:
                 yield session
 
+        self.current_user = StaffUser(role=Role.ADMIN, name="園長")
+
+        def override_get_current_staff_user():
+            return self.current_user
+
         self.app.dependency_overrides[attendance_module.get_session] = override_get_session
+        self.app.dependency_overrides[attendance_module.get_current_staff_user] = override_get_current_staff_user
         self.client = TestClient(self.app)
 
         with Session(self.engine) as session:
@@ -201,6 +208,34 @@ class AttendanceReportTests(unittest.TestCase):
         self.assertIn("うさぎ組", sheet_xml)
         self.assertIn("2026-03-02", sheet_xml)
         self.assertIn("2026-02-15", sheet_xml)
+
+    def test_non_admin_cannot_export_attendance(self):
+        self.current_user = StaffUser(role=Role.CAN_EDIT, name="一般職員")
+
+        response = self.client.get("/attendance/export.csv?date=2026-02-15", follow_redirects=False)
+
+        self.assertEqual(response.status_code, 303)
+        self.assertIn("/attendance?", response.headers["location"])
+        self.assertIn("date=2026-02-15", response.headers["location"])
+        self.assertIn("notice=export_admin_required", response.headers["location"])
+
+        notice_response = self.client.get(response.headers["location"])
+        self.assertEqual(notice_response.status_code, 200)
+        self.assertIn("CSV/Excel出力は管理者のみ利用できます。", notice_response.text)
+
+    def test_non_admin_attendance_list_hides_export_links(self):
+        self.current_user = StaffUser(role=Role.CAN_EDIT, name="一般職員")
+
+        response = self.client.get("/attendance?date=2026-02-15")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn("/attendance/export.csv", response.text)
+        self.assertNotIn("/attendance/export.xlsx", response.text)
+
+    def test_invalid_date_is_rejected(self):
+        response = self.client.get("/attendance?date=not-a-date")
+
+        self.assertEqual(response.status_code, 400)
 
 
 if __name__ == "__main__":
