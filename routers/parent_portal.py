@@ -12,6 +12,7 @@ from auth import (
     clear_parent_account_cookie,
     get_current_parent_account_id,
     set_parent_account_cookie,
+    require_mock_parent_auth,
 )
 from child_profile_changes import (
     RELATIONSHIP_OPTIONS,
@@ -57,9 +58,10 @@ from survey_service import (
     survey_is_open,
     survey_matches_parent_targets,
 )
-from time_utils import ensure_utc, utc_now
+from time_utils import ensure_utc, local_today, utc_now
 
 router = APIRouter(prefix="/parent-portal", tags=["parent_portal"])
+mock_login_router = APIRouter(prefix="/parent-portal", tags=["parent-portal-mock"])
 templates = Jinja2Templates(directory="templates")
 
 PROFILE_FIELD_LABELS = {
@@ -78,7 +80,7 @@ CHILD_PROFILE_NOTICE_MESSAGES = {
 }
 def _parse_target_date(raw: Optional[str]) -> date:
     if not raw:
-        return date.today()
+        return local_today()
     try:
         return date.fromisoformat(raw)
     except ValueError as exc:
@@ -371,7 +373,11 @@ def _profile_change_details(account: ParentAccount, updated_values: dict[str, Op
     return details
 
 
-@router.get("/login", response_class=HTMLResponse)
+@mock_login_router.get(
+    "/login",
+    response_class=HTMLResponse,
+    dependencies=[Depends(require_mock_parent_auth)],
+)
 def parent_login_page(
     request: Request,
     parent_account_id: Optional[int] = Query(default=None),
@@ -394,7 +400,7 @@ def parent_login_page(
     )
 
 
-@router.post("/login")
+@mock_login_router.post("/login", dependencies=[Depends(require_mock_parent_auth)])
 def parent_login(
     parent_account_id: int = Form(...),
     session: Session = Depends(get_session),
@@ -413,7 +419,10 @@ def parent_login(
     return response
 
 
-@router.get("/mock-login/{parent_account_id}")
+@mock_login_router.get(
+    "/mock-login/{parent_account_id}",
+    dependencies=[Depends(require_mock_parent_auth)],
+)
 def parent_mock_login(
     parent_account_id: int,
     session: Session = Depends(get_session),

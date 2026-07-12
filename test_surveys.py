@@ -27,11 +27,11 @@ from models import (
 )
 from survey_service import eligible_staff_users_for_survey
 from survey_service import survey_is_open
-from time_utils import utc_now
 import routers.parent_portal as parent_portal_module
 import routers.staff_auth as staff_auth_module
 import routers.staff_surveys as staff_surveys_module
 import routers.surveys as surveys_module
+from testing_helpers import authenticate_mock_staff
 
 
 class SurveyFeatureTests(unittest.TestCase):
@@ -45,7 +45,9 @@ class SurveyFeatureTests(unittest.TestCase):
 
         self.app = FastAPI()
         self.app.include_router(parent_portal_module.router)
+        self.app.include_router(parent_portal_module.mock_login_router)
         self.app.include_router(staff_auth_module.router)
+        self.app.include_router(staff_auth_module.mock_login_router)
         self.app.include_router(staff_surveys_module.router)
         self.app.include_router(surveys_module.router)
 
@@ -58,6 +60,7 @@ class SurveyFeatureTests(unittest.TestCase):
         self.app.dependency_overrides[staff_surveys_module.get_session] = override_get_session
         self.app.dependency_overrides[surveys_module.get_session] = override_get_session
         self.client = TestClient(self.app)
+        authenticate_mock_staff(self.client)
 
         with Session(self.engine) as session:
             classroom = Classroom(name="ひよこ組", display_order=1)

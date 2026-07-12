@@ -5,7 +5,15 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlmodel import Session, select
 
-from auth import Role, clear_staff_cookies, get_current_staff_user, require_admin, set_staff_cookies
+from auth import (
+    Role,
+    clear_staff_cookies,
+    get_current_staff_user,
+    get_optional_current_staff_user,
+    require_admin,
+    require_mock_staff_auth,
+    set_staff_cookies,
+)
 from database import get_session
 from models import (
     USER_SOURCE_EXTERNAL,
@@ -18,9 +26,11 @@ from models import (
 )
 from staff_user_service import list_active_staff_users
 from time_utils import utc_now
+from url_utils import safe_internal_redirect
 
 
 router = APIRouter(prefix="/staff", tags=["staff-auth"])
+mock_login_router = APIRouter(prefix="/staff", tags=["staff-auth-mock"])
 templates = Jinja2Templates(directory="templates")
 
 DEFAULT_STAFF_REDIRECT = "/children"
@@ -40,12 +50,6 @@ STAFF_SOURCE_FILTER_OPTIONS = [
     (USER_SOURCE_SYSTEM, "システム"),
 ]
 STAFF_SOURCE_FILTER_VALUES = {value for value, _label in STAFF_SOURCE_FILTER_OPTIONS}
-
-
-def _normalize_redirect(redirect_to: str | None, fallback: str) -> str:
-    if redirect_to and redirect_to.startswith("/") and not redirect_to.startswith("//"):
-        return redirect_to
-    return fallback
 
 
 def _role_from_user(user: User) -> Role:
@@ -171,13 +175,18 @@ def _render_staff_user_form(
     )
 
 
-@router.get("/login", response_class=HTMLResponse)
+@mock_login_router.get(
+    "/login",
+    response_class=HTMLResponse,
+    dependencies=[Depends(require_mock_staff_auth)],
+)
 def staff_login_page(
     request: Request,
     redirect: str = DEFAULT_STAFF_REDIRECT,
-    current_user=Depends(get_current_staff_user),
+    current_user=Depends(get_optional_current_staff_user),
     session: Session = Depends(get_session),
 ):
+    del redirect
     users = list_active_staff_users(session)
     return templates.TemplateResponse(
         request,
@@ -185,19 +194,20 @@ def staff_login_page(
         {
             "request": request,
             "current_user": current_user,
-            "redirect_to": _normalize_redirect(redirect, DEFAULT_STAFF_REDIRECT),
+            "redirect_to": DEFAULT_STAFF_REDIRECT,
             "users": users,
         },
     )
 
 
-@router.post("/login")
+@mock_login_router.post("/login", dependencies=[Depends(require_mock_staff_auth)])
 def staff_login(
     user_id: str = Form(""),
     redirect_to: str = Form(DEFAULT_STAFF_REDIRECT),
     session: Session = Depends(get_session),
 ):
-    target = _normalize_redirect(redirect_to, DEFAULT_STAFF_REDIRECT)
+    del redirect_to
+    target = DEFAULT_STAFF_REDIRECT
     try:
         user_uuid = UUID(str(user_id).strip())
     except (TypeError, ValueError):
@@ -219,7 +229,7 @@ def staff_login(
 
 @router.post("/logout")
 def staff_logout(redirect_to: str = Form(DEFAULT_LOGOUT_REDIRECT)):
-    target = _normalize_redirect(redirect_to, DEFAULT_LOGOUT_REDIRECT)
+    target = safe_internal_redirect(redirect_to, DEFAULT_LOGOUT_REDIRECT)
     response = RedirectResponse(url=target, status_code=303)
     clear_staff_cookies(response)
     return response

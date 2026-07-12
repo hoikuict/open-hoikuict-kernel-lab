@@ -8,6 +8,7 @@ from sqlmodel import SQLModel, Session, create_engine
 
 from models import Child, ChildStatus, Classroom, Notice, NoticeTarget, NoticeTargetType
 import routers.notices as notices_module
+from testing_helpers import authenticate_mock_staff
 
 
 class NoticeRouterTests(unittest.TestCase):
@@ -28,6 +29,7 @@ class NoticeRouterTests(unittest.TestCase):
 
         self.app.dependency_overrides[notices_module.get_session] = override_get_session
         self.client = TestClient(self.app)
+        authenticate_mock_staff(self.client)
 
     def tearDown(self):
         self.client.close()

@@ -41,3 +41,6 @@ open-hoikuict は無保証のオープンソースソフトウェアです。実
 - データを何年保存するか
 - 保護者から削除・訂正依頼があった場合の対応
 - 障害や漏えいが疑われた場合の報告先
+## キオスク端末
+
+本番では `HOIKUICT_KIOSK_ACCESS_MODE=token`、`HOIKUICT_KIOSK_TOKEN`、`HOIKUICT_SECRET_KEY` を設定する。端末を失効させる場合はトークンまたはsecretをローテーションし、対象端末を再度有効化する。

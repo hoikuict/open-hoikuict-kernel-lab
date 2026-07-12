@@ -18,6 +18,7 @@ from attendance_checks_service import sync_attendance_alarm
 from database import get_session
 from extended_care_fee_service import charge_status_label, recalculate_attendance_charge
 from models import AttendanceRecord, Child, ChildStatus, Classroom, ExtendedCareCharge, ExtendedCareChargeStatus
+from time_utils import local_naive_now, local_today, utc_now
 
 router = APIRouter(prefix="/attendance", tags=["attendance"])
 templates = Jinja2Templates(directory="templates")
@@ -63,7 +64,7 @@ class AttendanceFilterParams:
 
     @property
     def has_search_filters(self) -> bool:
-        today = date.today()
+        today = local_today()
         return any(
             [
                 self.start_date != today,
@@ -121,7 +122,7 @@ class AttendanceReportRow:
     extended_care_requires_attention: bool
 def _parse_target_date(raw: Optional[str]) -> date:
     if not raw:
-        return date.today()
+        return local_today()
     try:
         return date.fromisoformat(raw)
     except ValueError as exc:
@@ -174,7 +175,7 @@ def _build_filters(
     parsed_end = _parse_optional_date(end_date)
 
     if parsed_start or parsed_end:
-        start = parsed_start or parsed_end or date.today()
+        start = parsed_start or parsed_end or local_today()
         end = parsed_end or parsed_start or start
     else:
         day = _parse_target_date(target_date)
@@ -794,16 +795,17 @@ def check_in(
         )
     ).first()
 
-    now = datetime.now()
+    now = local_naive_now()
+    audit_now = utc_now()
     if not record:
         record = AttendanceRecord(child_id=child_id, attendance_date=day, check_in_at=now)
     elif record.check_in_at is None:
         record.check_in_at = now
 
-    record.updated_at = now
+    record.updated_at = audit_now
     session.add(record)
     session.flush()
-    sync_attendance_alarm(session, child_id=child_id, target_date=day, record=record, now=now)
+    sync_attendance_alarm(session, child_id=child_id, target_date=day, record=record, now=audit_now)
     session.commit()
 
     return RedirectResponse(url=_build_redirect_url(day, return_query), status_code=303)
@@ -836,15 +838,16 @@ def check_out(
     if not record or record.check_in_at is None:
         raise HTTPException(status_code=400, detail="先に登園打刻を行ってください")
 
-    now = datetime.now()
+    now = local_naive_now()
+    audit_now = utc_now()
     if record.check_out_at is None:
         record.check_out_at = now
-    record.updated_at = now
+    record.updated_at = audit_now
 
     session.add(record)
     session.flush()
     recalculate_attendance_charge(session, record)
-    sync_attendance_alarm(session, child_id=child_id, target_date=day, record=record, now=now)
+    sync_attendance_alarm(session, child_id=child_id, target_date=day, record=record, now=audit_now)
     session.commit()
 
     return RedirectResponse(url=_build_redirect_url(day, return_query), status_code=303)

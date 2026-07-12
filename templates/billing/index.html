@@ -142,8 +142,21 @@
             <div class="flex flex-wrap gap-2">
               {% if current_user and current_user.is_admin %}
               <a href="/billing/zengin/exports/{{ row.export.id }}/download" class="rounded border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50">ダウンロード</a>
+              {% if row.export.status.value == "created" %}
+              <form method="post" action="/billing/zengin/exports/{{ row.export.id }}/mark-submitted-ui"
+                    onsubmit="return confirm('この出力を銀行提出済みにしますか？');">
+                <button type="submit" class="rounded border border-blue-300 px-3 py-1.5 text-xs font-medium text-blue-700 hover:bg-blue-50">銀行提出済みにする</button>
+              </form>
               {% endif %}
-              {% if current_user and current_user.can_edit and row.export.result_imported_at is none and row.export.status.value in ["created", "downloaded"] %}
+              {% if row.export.status.value in ["created", "submitted"] %}
+              <form method="post" action="/billing/zengin/exports/{{ row.export.id }}/supersede-ui"
+                    class="flex gap-1" onsubmit="return confirm('この出力を差し替えますか？');">
+                <input name="reason" required placeholder="差し替え理由" class="w-32 rounded border border-slate-300 px-2 py-1 text-xs">
+                <button type="submit" class="rounded border border-amber-300 px-3 py-1.5 text-xs font-medium text-amber-700 hover:bg-amber-50">差し替え</button>
+              </form>
+              {% endif %}
+              {% endif %}
+              {% if current_user and current_user.can_edit and row.export.status.value == "submitted" %}
               <form method="post" action="/billing/zengin/exports/{{ row.export.id }}/import-paid-demo">
                 <button type="submit" class="rounded border border-emerald-300 px-3 py-1.5 text-xs font-medium text-emerald-700 hover:bg-emerald-50">全件振替済みで取込</button>
               </form>

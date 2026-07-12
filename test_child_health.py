@@ -9,6 +9,7 @@ from sqlmodel import SQLModel, Session, create_engine, select
 from child_health_service import build_health_check_chart_records
 from models import Child, ChildAllergy, ChildHealthProfile, ChildStatus, Classroom, Family, HealthCheckRecord, HealthCheckType
 import routers.child_health as child_health_module
+from testing_helpers import authenticate_mock_staff
 
 
 class ChildHealthRouterTests(unittest.TestCase):
@@ -29,6 +30,7 @@ class ChildHealthRouterTests(unittest.TestCase):
 
         self.app.dependency_overrides[child_health_module.get_session] = override_get_session
         self.client = TestClient(self.app)
+        authenticate_mock_staff(self.client)
 
         with Session(self.engine) as session:
             classroom = Classroom(name="ひよこ組", display_order=1)

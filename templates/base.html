@@ -139,6 +139,7 @@
   </style>
   {% endif %}
   {% block head %}{% endblock %}
+  <meta name="csrf-token" content="{{ request.state.csrf_token if request is defined and request and request.state.csrf_token is defined else '' }}">
 </head>
 {% set is_parent_portal = (parent_portal_mode is defined and parent_portal_mode) or (current_parent_user is defined and current_parent_user) %}
 {% set current_path = request.url.path if request is defined and request else '' %}
@@ -348,5 +349,31 @@
     })();
   </script>
   {% endif %}
+  <script>
+    (() => {
+      const token = document.querySelector('meta[name="csrf-token"]')?.content || "";
+      const addToken = (root) => {
+        const selector = 'form[method="post" i], form[method="put" i], form[method="patch" i], form[method="delete" i]';
+        const forms = [...(root.querySelectorAll?.(selector) || [])];
+        if (root.matches?.(selector)) forms.push(root);
+        forms.forEach((form) => {
+          if (!form.querySelector('input[name="csrf_token"]')) {
+            const input = document.createElement("input");
+            input.type = "hidden";
+            input.name = "csrf_token";
+            input.value = token;
+            form.appendChild(input);
+          }
+        });
+      };
+      addToken(document);
+      new MutationObserver((records) => records.forEach((record) => record.addedNodes.forEach((node) => {
+        if (node.nodeType === Node.ELEMENT_NODE) addToken(node);
+      }))).observe(document.documentElement, { childList: true, subtree: true });
+      document.body.addEventListener("htmx:configRequest", (event) => {
+        event.detail.headers["X-CSRF-Token"] = token;
+      });
+    })();
+  </script>
 </body>
 </html>

@@ -658,7 +658,7 @@ def _fetch_examples(
         return []
     placeholders = ",".join("?" for _ in items)
     params: list[object] = [plan_type, age_class, *items]
-    where = [f"plan_type = ?", "age_class = ?", f"item in ({placeholders})"]
+    where = ["plan_type = ?", "age_class = ?", f"item in ({placeholders})"]
     if month is not None:
         where.append("(month = ? or month is null)")
         params.append(month)

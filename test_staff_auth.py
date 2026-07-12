@@ -14,10 +14,12 @@ from auth import (
 import database
 from models import USER_SOURCE_LOCAL_SAMPLE, USER_SOURCE_MANUAL, USER_SOURCE_WEB_DEMO, User
 import routers.staff_auth as staff_auth_module
+from testing_helpers import configure_test_environment
 
 
 class StaffAuthRouterTests(unittest.TestCase):
     def setUp(self):
+        configure_test_environment()
         self.engine = create_engine(
             "sqlite://",
             connect_args={"check_same_thread": False},
@@ -27,6 +29,7 @@ class StaffAuthRouterTests(unittest.TestCase):
 
         self.app = FastAPI()
         self.app.include_router(staff_auth_module.router)
+        self.app.include_router(staff_auth_module.mock_login_router)
 
         def override_get_session():
             with Session(self.engine) as session:
@@ -80,7 +83,7 @@ class StaffAuthRouterTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertIn('action="/staff/login"', response.text)
-        self.assertIn('name="redirect_to" value="/staff-rooms/"', response.text)
+        self.assertIn('name="redirect_to" value="/children"', response.text)
         self.assertEqual(response.text.count('name="user_id"'), 2)
         self.assertIn("職員ログイン", response.text)
         self.assertIn("未ログイン", response.text)
@@ -101,7 +104,7 @@ class StaffAuthRouterTests(unittest.TestCase):
         )
 
         self.assertEqual(response.status_code, 303)
-        self.assertEqual(response.headers["location"], "/staff-rooms/")
+        self.assertEqual(response.headers["location"], "/children")
         set_cookie = response.headers.get("set-cookie", "")
         self.assertIn(f"{MOCK_ROLE_COOKIE}=admin", set_cookie)
         self.assertIn(f"{MOCK_STAFF_NAME_COOKIE}=", set_cookie)
@@ -161,15 +164,33 @@ class StaffAuthRouterTests(unittest.TestCase):
 
     def test_seed_calendar_data_skips_local_staff_when_web_demo_users_exist(self):
         with Session(self.engine) as session:
-            session.add(
-                User(
-                    email="principal@demo.open-hoikuict.example",
-                    display_name="園長",
-                    staff_role="admin",
-                    staff_sort_order=10,
-                    provisioning_source=USER_SOURCE_WEB_DEMO,
-                    is_calendar_admin=True,
-                )
+            session.add_all(
+                [
+                    User(
+                        email="principal@demo.open-hoikuict.example",
+                        display_name="園長",
+                        staff_role="admin",
+                        staff_sort_order=10,
+                        provisioning_source=USER_SOURCE_WEB_DEMO,
+                        is_calendar_admin=True,
+                    ),
+                    User(
+                        email="chief@demo.open-hoikuict.example",
+                        display_name="主任",
+                        staff_role="admin",
+                        staff_sort_order=20,
+                        provisioning_source=USER_SOURCE_WEB_DEMO,
+                        is_calendar_admin=True,
+                    ),
+                    User(
+                        email="chief@example.com",
+                        display_name="主任",
+                        staff_role="admin",
+                        staff_sort_order=20,
+                        provisioning_source=USER_SOURCE_LOCAL_SAMPLE,
+                        is_calendar_admin=True,
+                    ),
+                ]
             )
             session.commit()
 
@@ -192,7 +213,8 @@ class StaffAuthRouterTests(unittest.TestCase):
             ).first()
 
         self.assertEqual(local_principal.provisioning_source, USER_SOURCE_MANUAL)
-        self.assertIsNone(local_chief)
+        self.assertIsNotNone(local_chief)
+        self.assertFalse(local_chief.is_active)
         self.assertIsNotNone(demo_principal)
         self.assertEqual(demo_principal.provisioning_source, USER_SOURCE_WEB_DEMO)
 

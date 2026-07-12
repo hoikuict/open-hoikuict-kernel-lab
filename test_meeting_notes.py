@@ -1,14 +1,19 @@
 import base64
 import unittest
+import os
+from unittest.mock import patch
+from uuid import UUID
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from starlette.websockets import WebSocketDisconnect
 from sqlalchemy.pool import StaticPool
 from sqlmodel import SQLModel, Session, create_engine, select
 
 from auth import Role, StaffUser
 from models import MeetingNote
 import routers.meeting_notes as meeting_notes_module
+from testing_helpers import authenticate_mock_staff
 
 
 class MeetingNoteRouterTests(unittest.TestCase):
@@ -35,6 +40,7 @@ class MeetingNoteRouterTests(unittest.TestCase):
         self.app.dependency_overrides[meeting_notes_module.get_session] = override_get_session
         self.app.dependency_overrides[meeting_notes_module.get_current_staff_user] = override_get_current_staff_user
         self.client = TestClient(self.app)
+        authenticate_mock_staff(self.client)
 
     def tearDown(self):
         self.client.close()
@@ -105,11 +111,39 @@ class MeetingNoteRouterTests(unittest.TestCase):
             session.refresh(note)
             note_id = note.id
 
-        with self.client.websocket_connect(f"/meeting-notes/ws/{note_id}") as ws_one:
-            with self.client.websocket_connect(f"/meeting-notes/ws/{note_id}") as ws_two:
-                payload = b"\x00\x01\x02sync"
-                ws_one.send_bytes(payload)
-                self.assertEqual(ws_two.receive_bytes(), payload)
+        with TestClient(self.app) as second_browser:
+            authenticate_mock_staff(
+                second_browser,
+                user_id=UUID("00000000-0000-0000-0000-000000000002"),
+                name="別ブラウザー職員",
+            )
+            with self.client.websocket_connect(f"/meeting-notes/ws/{note_id}") as ws_one:
+                with second_browser.websocket_connect(f"/meeting-notes/ws/{note_id}") as ws_two:
+                    payload = b"\x00\x01\x02sync"
+                    ws_one.send_bytes(payload)
+                    self.assertEqual(ws_two.receive_bytes(), payload)
+
+    def test_websocket_rejects_unauthenticated_and_foreign_origin(self):
+        with Session(self.engine) as session:
+            note = MeetingNote(title="認証確認")
+            session.add(note)
+            session.commit()
+            session.refresh(note)
+            note_id = note.id
+
+        self.client.cookies.clear()
+        with self.assertRaises(WebSocketDisconnect):
+            with self.client.websocket_connect(f"/meeting-notes/ws/{note_id}"):
+                pass
+
+        authenticate_mock_staff(self.client)
+        with patch.dict(os.environ, {"HOIKUICT_ALLOWED_ORIGINS": "https://allowed.example"}):
+            with self.assertRaises(WebSocketDisconnect):
+                with self.client.websocket_connect(
+                    f"/meeting-notes/ws/{note_id}",
+                    headers={"origin": "https://evil.example"},
+                ):
+                    pass
 
 
 if __name__ == "__main__":

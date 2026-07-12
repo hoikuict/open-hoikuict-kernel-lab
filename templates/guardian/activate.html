@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block title %}キオスク有効化{% endblock %}
+{% block content %}
+<section class="mx-auto max-w-md rounded-xl bg-white p-6 shadow">
+  <h1 class="mb-4 text-xl font-bold">キオスク端末を有効化</h1>
+  {% if error %}<p class="mb-4 rounded bg-red-50 p-3 text-red-700">{{ error }}</p>{% endif %}
+  <form method="post" action="/guardian/activate">
+    <label class="mb-2 block font-medium" for="kiosk-token">デバイストークン</label>
+    <input id="kiosk-token" name="kiosk_token" type="password" required autocomplete="off"
+           class="mb-4 w-full rounded border border-slate-300 px-3 py-2">
+    <button type="submit" class="rounded bg-indigo-600 px-4 py-2 font-semibold text-white">有効化</button>
+  </form>
+</section>
+{% endblock %}

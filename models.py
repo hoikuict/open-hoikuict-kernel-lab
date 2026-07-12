@@ -6,7 +6,7 @@ from typing import Any, List, Optional
 from sqlalchemy import JSON, CheckConstraint, UniqueConstraint
 from sqlmodel import Column, Field, Relationship, SQLModel
 
-from time_utils import utc_now
+from time_utils import local_today, utc_now
 
 
 class ChildStatus(str, Enum):
@@ -374,7 +374,7 @@ class Child(SQLModel, table=True):
 
     @property
     def age(self) -> int:
-        today = date.today()
+        today = local_today()
         return today.year - self.birth_date.year - (
             (today.month, today.day) < (self.birth_date.month, self.birth_date.day)
         )
@@ -952,8 +952,9 @@ class ProrationRounding(str, Enum):
 
 class ZenginExportStatus(str, Enum):
     created = "created"
-    downloaded = "downloaded"
-    reissued = "reissued"
+    submitted = "submitted"
+    result_imported = "result_imported"
+    superseded = "superseded"
     canceled = "canceled"
 
 
@@ -1003,6 +1004,11 @@ class FamilyBillingProfile(SQLModel, table=True):
     account_holder_kana: Optional[str] = None
     customer_number: str = Field(index=True)
     new_code: str = Field(default="0", max_length=1)
+    new_code_consumed_by_export_id: Optional[int] = Field(
+        default=None,
+        foreign_key="zengin_exports.id",
+        index=True,
+    )
     mandate_received_on: Optional[date] = None
     note: Optional[str] = None
     created_at: datetime = Field(default_factory=utc_now)
@@ -1132,7 +1138,7 @@ class ZenginExport(SQLModel, table=True):
     superseded_by_export_id: Optional[int] = Field(default=None, foreign_key="zengin_exports.id")
     reissue_reason: Optional[str] = None
     canceled_reason: Optional[str] = None
-    downloaded_at: Optional[datetime] = None
+    submitted_at: Optional[datetime] = None
     result_imported_at: Optional[datetime] = None
     content_hash: str
     settings_snapshot: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON))

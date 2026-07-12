@@ -10,6 +10,7 @@ from sqlmodel import SQLModel, Session, create_engine
 
 from auth import Role, StaffUser
 from models import AttendanceRecord, Child, ChildStatus, Classroom
+from testing_helpers import authenticate_mock_staff
 import routers.attendance as attendance_module
 
 
@@ -219,6 +220,7 @@ class AttendanceReportTests(unittest.TestCase):
     def test_admin_query_mode_can_use_export_links(self):
         self.app.dependency_overrides.pop(attendance_module.get_current_staff_user, None)
         try:
+            authenticate_mock_staff(self.client, role=Role.ADMIN)
             response = self.client.get("/attendance?date=2026-02-15&as=admin")
 
             self.assertEqual(response.status_code, 200)

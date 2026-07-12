@@ -13,7 +13,10 @@ git clone https://github.com/hoikuict/open-hoikuict.git
 cd open-hoikuict
 python -m venv .venv
 source .venv/bin/activate
-pip install -r requirements.txt
+pip install -r requirements.txt -r requirements-dev.txt
+export HOIKUICT_ENV=development
+export HOIKUICT_ENABLE_MOCK_AUTH=1
+export HOIKUICT_KIOSK_ACCESS_MODE=open
 uvicorn main:app --reload
 ```
 
@@ -22,7 +25,10 @@ Windows PowerShell の場合:
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
-pip install -r requirements.txt
+pip install -r requirements.txt -r requirements-dev.txt
+$env:HOIKUICT_ENV = "development"
+$env:HOIKUICT_ENABLE_MOCK_AUTH = "1"
+$env:HOIKUICT_KIOSK_ACCESS_MODE = "open"
 uvicorn main:app --reload
 ```
 
@@ -31,7 +37,8 @@ uvicorn main:app --reload
 ## テスト
 
 ```bash
-pytest
+ruff check .
+python -m pytest -q --ignore=gen_bunnrei
 ```
 
 ## データベース
@@ -59,3 +66,21 @@ uvicorn main:app --reload
 - スクリーンショットに実在情報を含めない
 - 権限、監査ログ、エラー時の戻りやすさを確認する
 - 保護者画面で他家庭の情報が見えないことを常に確認する
+
+## 開発用セキュリティ設定
+
+ローカルHTTPでモック認証とキオスクを使う場合は、起動前に次を設定します。本番では使用しません。
+
+```powershell
+$env:HOIKUICT_ENV = "development"
+$env:HOIKUICT_ENABLE_MOCK_AUTH = "1"
+$env:HOIKUICT_KIOSK_ACCESS_MODE = "open"
+$env:HOIKUICT_CSRF_ENFORCE = "0"
+```
+
+## 開発上の時刻規約
+
+- 園の業務日付は `time_utils.local_today()` を使う。
+- 既存DBの登降園時刻は `time_utils.local_naive_now()` を使う。
+- `created_at` / `updated_at` 等の監査時刻は `time_utils.utc_now()` を使う。
+- `date.today()` / naiveな `datetime.now()` を業務コードで直接使わない。

@@ -28,6 +28,12 @@ class ZenginError(ValueError):
     pass
 
 
+class ZenginFileValidationError(ZenginError):
+    def __init__(self, errors: str | list[str]):
+        self.errors = [errors] if isinstance(errors, str) else list(errors)
+        super().__init__(self.errors[0] if self.errors else "結果ファイルが不正です")
+
+
 ZENGIN_C_ALLOWED_RE = re.compile(r"^[0-9A-Z \-.()/｡-ﾟ]*$")
 DEFAULT_RESULT_CODE_MAP = {
     "0": ("paid", "振替済"),
@@ -277,7 +283,12 @@ def build_zengin_file(session: Session, export_id: int) -> bytes:
     return build_file_bytes(records, encoding, export.settings_snapshot.get("line_separator", "CRLF"))
 
 
-def create_zengin_export(session: Session, cycle_id: int, *, created_by: str = "system") -> ZenginExport:
+def _create_zengin_export_uncommitted(
+    session: Session,
+    cycle_id: int,
+    *,
+    created_by: str = "system",
+) -> ZenginExport:
     cycle = session.get(BillingCycle, cycle_id)
     if cycle is None:
         raise ZenginError("請求月が見つかりません")
@@ -344,17 +355,35 @@ def create_zengin_export(session: Session, cycle_id: int, *, created_by: str = "
     cycle.updated_at = utc_now()
     session.add(cycle)
     session.add(export)
-    session.commit()
-    session.refresh(export)
+    session.flush()
     return export
 
 
-def mark_zengin_export_downloaded(session: Session, export_id: int) -> None:
+def create_zengin_export(session: Session, cycle_id: int, *, created_by: str = "system") -> ZenginExport:
+    try:
+        export = _create_zengin_export_uncommitted(
+            session,
+            cycle_id,
+            created_by=created_by,
+        )
+        session.commit()
+        session.refresh(export)
+        return export
+    except Exception:
+        session.rollback()
+        raise
+
+
+def mark_zengin_export_submitted(session: Session, export_id: int) -> ZenginExport:
     export = session.get(ZenginExport, export_id)
     if export is None:
         raise ZenginError("Zengin出力履歴が見つかりません")
-    export.status = ZenginExportStatus.downloaded
-    export.downloaded_at = utc_now()
+    if export.status == ZenginExportStatus.submitted:
+        return export
+    if export.status != ZenginExportStatus.created:
+        raise ZenginError("このZengin出力は銀行提出済みに変更できません")
+    export.status = ZenginExportStatus.submitted
+    export.submitted_at = utc_now()
     lines = _load_export_lines(session, export_id)
     for line in lines:
         profile = session.exec(
@@ -362,10 +391,84 @@ def mark_zengin_export_downloaded(session: Session, export_id: int) -> None:
         ).first()
         if profile and profile.new_code in {"1", "2"}:
             profile.new_code = "0"
+            profile.new_code_consumed_by_export_id = export.id
             profile.updated_at = utc_now()
             session.add(profile)
     session.add(export)
     session.commit()
+    session.refresh(export)
+    return export
+
+
+def supersede_zengin_export(
+    session: Session,
+    export_id: int,
+    *,
+    reason: str,
+    created_by: str,
+) -> ZenginExport:
+    normalized_reason = (reason or "").strip()
+    if not normalized_reason:
+        raise ZenginError("差し替え理由を入力してください")
+    original = session.get(ZenginExport, export_id)
+    if original is None:
+        raise ZenginError("Zengin出力履歴が見つかりません")
+    if original.status not in {ZenginExportStatus.created, ZenginExportStatus.submitted}:
+        raise ZenginError("このZengin出力は差し替えできません")
+    if original.result_imported_at is not None:
+        raise ZenginError("結果取込済みのZengin出力は差し替えできません")
+
+    try:
+        lines = _load_export_lines(session, export_id)
+        for line in lines:
+            claim = session.get(BillingClaim, line.billing_claim_id)
+            if claim is not None:
+                claim.status = BillingClaimStatus.confirmed
+                claim.zengin_export_id = None
+                claim.exported_at = None
+                claim.updated_at = utc_now()
+                session.add(claim)
+
+            profile = session.exec(
+                select(FamilyBillingProfile).where(
+                    FamilyBillingProfile.family_id == line.family_id
+                )
+            ).first()
+            snapshot_code = str((line.bank_snapshot or {}).get("new_code") or "")
+            if (
+                profile is not None
+                and profile.new_code == "0"
+                and profile.new_code_consumed_by_export_id == original.id
+                and snapshot_code in {"1", "2"}
+            ):
+                profile.new_code = snapshot_code
+                profile.new_code_consumed_by_export_id = None
+                profile.updated_at = utc_now()
+                session.add(profile)
+
+        cycle = session.get(BillingCycle, original.billing_cycle_id)
+        if cycle is None:
+            raise ZenginError("請求月が見つかりません")
+        cycle.status = BillingCycleStatus.confirmed
+        cycle.updated_at = utc_now()
+        session.add(cycle)
+        session.flush()
+
+        replacement = _create_zengin_export_uncommitted(
+            session,
+            cycle.id,
+            created_by=created_by,
+        )
+        original.status = ZenginExportStatus.superseded
+        original.superseded_by_export_id = replacement.id
+        original.reissue_reason = normalized_reason
+        session.add(original)
+        session.commit()
+        session.refresh(replacement)
+        return replacement
+    except Exception:
+        session.rollback()
+        raise
 
 
 def _normalize_result_records(file_bytes: bytes) -> list[bytes]:
@@ -392,9 +495,13 @@ def _parse_data_result_record(record: str) -> ParsedResultRecord:
     result_code = record[111:112]
     if result_code not in DEFAULT_RESULT_CODE_MAP:
         raise ZenginError(f"未知の結果コードです: {result_code}")
+    try:
+        amount = int(record[80:90])
+    except ValueError as exc:
+        raise ZenginFileValidationError("データレコードの引落金額が数値ではありません") from exc
     return ParsedResultRecord(
         customer_number=record[91:111],
-        amount=int(record[80:90]),
+        amount=amount,
         result_code=result_code,
     )
 
@@ -402,14 +509,17 @@ def _parse_data_result_record(record: str) -> ParsedResultRecord:
 def _parse_trailer(record: str) -> dict[str, int]:
     if record[0] != "8":
         raise ZenginError("トレーラーレコードではありません")
-    return {
-        "total_count": int(record[1:7]),
-        "total_amount": int(record[7:19]),
-        "paid_count": int(record[19:25]),
-        "paid_amount": int(record[25:37]),
-        "failed_count": int(record[37:43]),
-        "failed_amount": int(record[43:55]),
-    }
+    try:
+        return {
+            "total_count": int(record[1:7]),
+            "total_amount": int(record[7:19]),
+            "paid_count": int(record[19:25]),
+            "paid_amount": int(record[25:37]),
+            "failed_count": int(record[37:43]),
+            "failed_amount": int(record[43:55]),
+        }
+    except ValueError as exc:
+        raise ZenginFileValidationError("トレーラーレコードの数値項目が不正です") from exc
 
 
 def validate_result_trailer(result_records: list[ParsedResultRecord], trailer: dict[str, int], export: ZenginExport) -> list[str]:
@@ -438,15 +548,26 @@ def parse_result_file(session: Session, file_bytes: bytes, export_id: int) -> Pa
     export = session.get(ZenginExport, export_id)
     if export is None:
         raise ZenginError("Zengin出力履歴が見つかりません")
-    if export.status not in {ZenginExportStatus.created, ZenginExportStatus.downloaded}:
+    if export.status != ZenginExportStatus.submitted:
         raise ZenginError("このZengin出力は結果取込対象ではありません")
     if export.superseded_by_export_id is not None or export.result_imported_at is not None:
         raise ZenginError("このZengin出力は結果取込対象ではありません")
 
     encoding = export.settings_snapshot.get("file_encoding", "cp932")
-    records = [record.decode(encoding, errors="strict") for record in _normalize_result_records(file_bytes)]
-    for record in records:
-        validate_record(record, encoding)
+    try:
+        normalized_records = _normalize_result_records(file_bytes)
+        records = [record.decode(encoding, errors="strict") for record in normalized_records]
+    except UnicodeDecodeError as exc:
+        raise ZenginFileValidationError(
+            f"結果ファイルの文字コードが設定（{encoding}）と一致しません"
+        ) from exc
+    except ZenginError as exc:
+        raise ZenginFileValidationError(str(exc)) from exc
+    try:
+        for record in records:
+            validate_record(record, encoding)
+    except ZenginError as exc:
+        raise ZenginFileValidationError(str(exc)) from exc
 
     errors: list[str] = []
     warnings: list[str] = []
@@ -518,6 +639,17 @@ def import_result_file(session: Session, file_bytes: bytes, export_id: int) -> P
         session.add(claim)
 
     export.result_imported_at = utc_now()
+    export.status = ZenginExportStatus.result_imported
+    for line in _load_export_lines(session, export_id):
+        profile = session.exec(
+            select(FamilyBillingProfile).where(
+                FamilyBillingProfile.family_id == line.family_id
+            )
+        ).first()
+        if profile and profile.new_code_consumed_by_export_id == export.id:
+            profile.new_code_consumed_by_export_id = None
+            profile.updated_at = utc_now()
+            session.add(profile)
     cycle = session.get(BillingCycle, export.billing_cycle_id)
     if cycle is not None:
         cycle.status = BillingCycleStatus.result_imported

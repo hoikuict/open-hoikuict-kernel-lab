@@ -22,7 +22,7 @@ from extended_care_fee_service import (
     validate_fee_rule,
 )
 from models import Classroom, ExtendedCareCharge, ExtendedCareFeeRule
-from time_utils import utc_now
+from time_utils import local_today, utc_now
 
 
 router = APIRouter(prefix="/extended-care-fees", tags=["extended-care-fees"])
@@ -303,7 +303,7 @@ def _parse_rule_form(**raw_values) -> tuple[dict, list[str]]:
     parsed_from = _parse_date(raw_values["effective_from"])
     if parsed_from is None:
         errors.append("適用開始日を入力してください。")
-        parsed_from = date.today()
+        parsed_from = local_today()
     values["effective_from"] = parsed_from
 
     parsed_to = _parse_date(raw_values.get("effective_to"))
@@ -361,7 +361,7 @@ def _list_rules(session: Session) -> list[ExtendedCareFeeRule]:
 def _default_rule_form_values() -> dict:
     return {
         "name": "標準延長保育料",
-        "effective_from": date.today().replace(month=1, day=1).isoformat(),
+        "effective_from": local_today().replace(month=1, day=1).isoformat(),
         "effective_to": "",
         "start_time": "18:00",
         "grace_minutes": "5",
@@ -375,7 +375,7 @@ def _default_rule_form_values() -> dict:
 def _form_values_from_values(values: dict) -> dict:
     return {
         "name": values.get("name", ""),
-        "effective_from": values.get("effective_from", date.today()).isoformat(),
+        "effective_from": values.get("effective_from", local_today()).isoformat(),
         "effective_to": values["effective_to"].isoformat() if values.get("effective_to") else "",
         "start_time": values.get("start_time", "18:00"),
         "grace_minutes": str(values.get("grace_minutes", "")),

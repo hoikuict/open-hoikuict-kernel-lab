@@ -7,9 +7,18 @@ services:
     pull_policy: build
     restart: unless-stopped
     environment:
+      TZ: Asia/Tokyo
       HOIKUICT_DATABASE_URL: sqlite:////data/hoikuict.db
       HOIKU_FACILITY_BUNREI_DB_PATH: /data/facility.sqlite
       HOIKU_NURSERY_REF: ${NURSERY_REF:-ひかり保育園}
+      HOIKUICT_ENV: ${HOIKUICT_ENV:-production}
+      HOIKUICT_ENABLE_MOCK_AUTH: ${HOIKUICT_ENABLE_MOCK_AUTH:-0}
+      HOIKUICT_COOKIE_SECURE: ${HOIKUICT_COOKIE_SECURE:-1}
+      HOIKUICT_CSRF_ENFORCE: ${HOIKUICT_CSRF_ENFORCE:-1}
+      HOIKUICT_SECRET_KEY: ${HOIKUICT_SECRET_KEY:?HOIKUICT_SECRET_KEY is required}
+      HOIKUICT_ALLOWED_ORIGINS: ${HOIKUICT_ALLOWED_ORIGINS:?HOIKUICT_ALLOWED_ORIGINS is required}
+      HOIKUICT_KIOSK_ACCESS_MODE: ${HOIKUICT_KIOSK_ACCESS_MODE:-disabled}
+      HOIKUICT_PREVIEW_DIR: /data/data_transfer_previews
     volumes:
       - hoikuict_data:/data
     ports:

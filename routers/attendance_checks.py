@@ -26,7 +26,7 @@ from models import (
     Classroom,
     DailyContactEntry,
 )
-from time_utils import utc_now
+from time_utils import local_today, utc_now
 
 router = APIRouter(prefix="/attendance-checks", tags=["attendance_checks"])
 templates = Jinja2Templates(directory="templates")
@@ -77,7 +77,7 @@ class AttendanceCheckRow:
 
 def _parse_target_date(raw: Optional[str]) -> date:
     if not raw:
-        return date.today()
+        return local_today()
     try:
         return date.fromisoformat(raw)
     except ValueError as exc:

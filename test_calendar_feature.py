@@ -8,6 +8,7 @@ from sqlalchemy.pool import StaticPool
 from sqlmodel import SQLModel, Session, create_engine, select
 
 import routers.calendar as calendar_module
+from testing_helpers import configure_test_environment
 from models import (
     Calendar,
     CalendarActivityKind,
@@ -27,6 +28,7 @@ from models import (
 
 class CalendarFeatureTests(unittest.TestCase):
     def setUp(self):
+        configure_test_environment()
         self.engine = create_engine(
             "sqlite://",
             connect_args={"check_same_thread": False},
@@ -36,6 +38,7 @@ class CalendarFeatureTests(unittest.TestCase):
 
         self.app = FastAPI()
         self.app.include_router(calendar_module.router)
+        self.app.include_router(calendar_module.mock_login_router)
 
         def override_get_session():
             with Session(self.engine) as session:
@@ -134,6 +137,16 @@ class CalendarFeatureTests(unittest.TestCase):
         self.assertIn("施設共用カレンダー", response.text)
         self.assertNotIn("佐藤先生の個人カレンダー", response.text)
         self.assertIn("カレンダー権限: 管理者", response.text)
+
+    def test_calendar_websocket_authenticates_and_releases_request_session(self):
+        self._login(self.user_a_id)
+        with self.client.websocket_connect(
+            f"/ws/calendars/{self.a_personal_id}"
+        ) as websocket:
+            websocket.send_text("ping")
+
+        response = self.client.get("/calendar")
+        self.assertEqual(response.status_code, 200)
 
     def test_admin_user_can_see_create_form_with_color_palette(self):
         self._login(self.user_a_id)

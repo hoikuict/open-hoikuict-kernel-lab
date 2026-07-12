@@ -11,7 +11,13 @@ from attendance_checks_service import sync_attendance_alarm
 from database import get_session
 from extended_care_fee_service import recalculate_attendance_charge
 from models import AttendanceRecord, Child, ChildStatus, Classroom
-from time_utils import local_naive_now, local_today
+from time_utils import local_naive_now, local_today, utc_now
+from kiosk_security import (
+    issue_kiosk_device_cookie,
+    kiosk_activation_token_is_valid,
+    require_kiosk_activation_mode,
+    require_kiosk_access,
+)
 
 router = APIRouter(prefix="/guardian", tags=["guardian"])
 templates = Jinja2Templates(directory="templates")
@@ -103,7 +109,11 @@ def _load_record_for_checkout(session: Session, child_id: int, day: date) -> Att
     return record
 
 
-@router.get("/", response_class=HTMLResponse)
+@router.get(
+    "/",
+    response_class=HTMLResponse,
+    dependencies=[Depends(require_kiosk_access)],
+)
 def guardian_kiosk(
     request: Request,
     target_date: Optional[str] = Query(default=None, alias="date"),
@@ -186,7 +196,7 @@ def guardian_kiosk(
     )
 
 
-@router.post("/child/{child_id}/check-in")
+@router.post("/child/{child_id}/check-in", dependencies=[Depends(require_kiosk_access)])
 def guardian_check_in(
     child_id: int,
     target_date: str = Form(..., alias="date"),
@@ -199,16 +209,17 @@ def guardian_check_in(
     record = _load_attendance_record(session, child_id, day)
 
     now = local_naive_now()
+    audit_now = utc_now()
     if not record:
         record = AttendanceRecord(child_id=child_id, attendance_date=day)
     if record.check_in_at is None:
         record.check_in_at = now
-    record.updated_at = now
+    record.updated_at = audit_now
 
     session.add(record)
     session.flush()
     recalculate_attendance_charge(session, record)
-    sync_attendance_alarm(session, child_id=child_id, target_date=day, record=record, now=now)
+    sync_attendance_alarm(session, child_id=child_id, target_date=day, record=record, now=audit_now)
     session.commit()
 
     return RedirectResponse(
@@ -217,7 +228,7 @@ def guardian_check_in(
     )
 
 
-@router.post("/child/{child_id}/pickup")
+@router.post("/child/{child_id}/pickup", dependencies=[Depends(require_kiosk_access)])
 def guardian_pickup_confirm(
     request: Request,
     child_id: int,
@@ -251,7 +262,7 @@ def guardian_pickup_confirm(
     )
 
 
-@router.post("/child/{child_id}/pickup/commit")
+@router.post("/child/{child_id}/pickup/commit", dependencies=[Depends(require_kiosk_access)])
 def guardian_pickup_commit(
     request: Request,
     child_id: int,
@@ -272,7 +283,7 @@ def guardian_pickup_commit(
     record.planned_pickup_time = normalized_time
     record.pickup_person = normalized_person
     record.snack_required = normalized_snack_required
-    record.updated_at = local_naive_now()
+    record.updated_at = utc_now()
     session.add(record)
     session.commit()
 
@@ -289,7 +300,7 @@ def guardian_pickup_commit(
     )
 
 
-@router.post("/child/{child_id}/check-out")
+@router.post("/child/{child_id}/check-out", dependencies=[Depends(require_kiosk_access)])
 def guardian_check_out_confirm(
     request: Request,
     child_id: int,
@@ -315,7 +326,7 @@ def guardian_check_out_confirm(
     )
 
 
-@router.post("/child/{child_id}/check-out/commit")
+@router.post("/child/{child_id}/check-out/commit", dependencies=[Depends(require_kiosk_access)])
 def guardian_check_out_commit(
     child_id: int,
     target_date: str = Form(..., alias="date"),
@@ -328,16 +339,44 @@ def guardian_check_out_commit(
     record = _load_record_for_checkout(session, child_id, day)
 
     now = local_naive_now()
+    audit_now = utc_now()
     record.check_out_at = now
-    record.updated_at = now
+    record.updated_at = audit_now
 
     session.add(record)
     session.flush()
     recalculate_attendance_charge(session, record)
-    sync_attendance_alarm(session, child_id=child_id, target_date=day, record=record, now=now)
+    sync_attendance_alarm(session, child_id=child_id, target_date=day, record=record, now=audit_now)
     session.commit()
 
     return RedirectResponse(
         url=_redirect_url(day, class_id or child.classroom_id, child_id, notice="checked_out"),
         status_code=303,
     )
+
+
+@router.get(
+    "/activate",
+    response_class=HTMLResponse,
+    dependencies=[Depends(require_kiosk_activation_mode)],
+)
+def guardian_activate_page(request: Request):
+    return templates.TemplateResponse(
+        request,
+        "guardian/activate.html",
+        {"request": request, "error": ""},
+    )
+
+
+@router.post("/activate", dependencies=[Depends(require_kiosk_activation_mode)])
+def guardian_activate(request: Request, kiosk_token: str = Form("")):
+    if not kiosk_activation_token_is_valid(kiosk_token):
+        return templates.TemplateResponse(
+            request,
+            "guardian/activate.html",
+            {"request": request, "error": "トークンが一致しません。"},
+            status_code=403,
+        )
+    response = RedirectResponse(url="/guardian/", status_code=303)
+    issue_kiosk_device_cookie(response)
+    return response

@@ -13,10 +13,12 @@ from plan_docs.routers.documents import router as documents_router
 from plan_docs.routers.home import router as home_router
 from plan_docs.routers.plans import router as plans_router
 import plan_docs.auth_adapter as plan_docs_auth
+from testing_helpers import configure_test_environment
 
 
 class PlanDocsIntegrationTests(unittest.TestCase):
     def setUp(self):
+        configure_test_environment()
         self.engine = create_engine(
             "sqlite://",
             connect_args={"check_same_thread": False},

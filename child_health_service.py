@@ -14,7 +14,7 @@ from models import (
     HealthCheckRecord,
     HealthCheckType,
 )
-from time_utils import utc_now
+from time_utils import local_today, utc_now
 
 GRAPH_CHECK_TYPES = {HealthCheckType.entrance, HealthCheckType.periodic}
 
@@ -252,7 +252,7 @@ def build_health_check_chart_records(
     *,
     range_key: str = "1y",
 ) -> list[HealthCheckRecord]:
-    today = date.today()
+    today = local_today()
     since_date = today - timedelta(days=365) if range_key == "1y" else None
 
     filtered = [
@@ -299,11 +299,11 @@ def health_check_is_stale(records: Iterable[HealthCheckRecord], *, max_age_days:
     )
     if latest_record is None:
         return True
-    return (date.today() - latest_record.checked_at).days > max_age_days
+    return (local_today() - latest_record.checked_at).days > max_age_days
 
 
 def expired_allergy_count(allergies: Iterable[ChildAllergy], *, today: Optional[date] = None) -> int:
-    target_day = today or date.today()
+    target_day = today or local_today()
     return sum(1 for allergy in allergies if allergy.valid_until is not None and allergy.valid_until < target_day)
 
 

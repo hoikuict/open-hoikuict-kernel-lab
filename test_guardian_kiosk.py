@@ -8,10 +8,12 @@ from sqlmodel import SQLModel, Session, create_engine, select
 
 from models import AttendanceRecord, Child, ChildStatus, Classroom
 import routers.guardian as guardian_module
+from testing_helpers import configure_test_environment
 
 
 class GuardianKioskTests(unittest.TestCase):
     def setUp(self):
+        configure_test_environment()
         self.engine = create_engine(
             "sqlite://",
             connect_args={"check_same_thread": False},

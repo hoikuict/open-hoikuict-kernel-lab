@@ -14,7 +14,6 @@ from models import (
     ChildProfileChangeRequest,
     ChildProfileChangeRequestStatus,
     Family,
-    ParentAccount,
 )
 from time_utils import utc_now
 

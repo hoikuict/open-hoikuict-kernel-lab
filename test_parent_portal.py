@@ -31,10 +31,12 @@ import routers.daily_contacts as daily_contacts_module
 import routers.notices as notices_module
 import routers.parent_accounts as parent_accounts_module
 import routers.parent_portal as parent_portal_module
+from testing_helpers import configure_test_environment
 
 
 class ParentPortalTests(unittest.TestCase):
     def setUp(self):
+        configure_test_environment()
         self.engine = create_engine(
             "sqlite://",
             connect_args={"check_same_thread": False},
@@ -44,6 +46,7 @@ class ParentPortalTests(unittest.TestCase):
 
         self.app = FastAPI()
         self.app.include_router(parent_portal_module.router)
+        self.app.include_router(parent_portal_module.mock_login_router)
         self.app.include_router(parent_accounts_module.router)
         self.app.include_router(notices_module.router)
         self.app.include_router(daily_contacts_module.router)

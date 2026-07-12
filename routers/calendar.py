@@ -13,7 +13,14 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlmodel import Session, select
 
-from auth import Role, clear_staff_cookies, get_calendar_user_cookie, set_staff_cookies
+from auth import (
+    Role,
+    clear_staff_cookies,
+    get_current_staff_user_id,
+    require_mock_staff_auth,
+    resolve_staff_principal,
+    set_staff_cookies,
+)
 from calendar_service import (
     CalendarContext,
     EventOccurrence,
@@ -63,8 +70,11 @@ from models import (
     User,
 )
 from time_utils import utc_now
+from url_utils import safe_internal_redirect
+from security_config import websocket_origin_allowed
 
 router = APIRouter(tags=["calendar"])
+mock_login_router = APIRouter(tags=["calendar-mock"])
 templates = Jinja2Templates(directory="templates")
 VALID_VIEW_MODES = {"month", "week", "day"}
 WEEKDAY_LABELS = ["月", "火", "水", "木", "金", "土", "日"]
@@ -143,7 +153,7 @@ def _coerce_uuid(raw_value: str | None) -> UUID | None:
 
 
 def _current_calendar_user(session: Session, request: Request) -> User | None:
-    user_id = _coerce_uuid(get_calendar_user_cookie(request))
+    user_id = get_current_staff_user_id(request)
     if user_id is None:
         return None
     user = session.get(User, user_id)
@@ -808,17 +818,24 @@ def _broadcast_payload(user: User, *, mode: str, anchor: date) -> dict[str, Any]
     }
 
 
-@router.get("/mock-login", response_class=HTMLResponse)
+@mock_login_router.get(
+    "/mock-login",
+    response_class=HTMLResponse,
+    dependencies=[Depends(require_mock_staff_auth)],
+)
 def mock_login_page(
     request: Request,
     redirect: str = "/calendar",
     session: Session = Depends(get_session),
 ):
-    target = redirect if redirect.startswith("/") else "/calendar"
+    target = safe_internal_redirect(redirect, "/calendar")
     return RedirectResponse(url=f"/staff/login?redirect={quote(target, safe='/?:=&')}", status_code=303)
 
 
-@router.post("/session/mock-login")
+@mock_login_router.post(
+    "/session/mock-login",
+    dependencies=[Depends(require_mock_staff_auth)],
+)
 def mock_login(
     user_id: str = Form(...),
     redirect_to: str = Form("/calendar"),
@@ -827,13 +844,13 @@ def mock_login(
     user = session.get(User, _coerce_uuid(user_id) or UUID(int=0))
     if user is None or not user.is_active or user.staff_sort_order >= 200:
         return RedirectResponse(url="/staff/login", status_code=303)
-    response = RedirectResponse(url=redirect_to if redirect_to.startswith("/") else "/calendar", status_code=303)
+    response = RedirectResponse(url=safe_internal_redirect(redirect_to, "/calendar"), status_code=303)
     role = Role.ADMIN if user.staff_role == "admin" else Role.CAN_EDIT if user.staff_role == "can_edit" else Role.VIEW_ONLY
     set_staff_cookies(response, role=role, name=user.display_name, user_id=str(user.id))
     return response
 
 
-@router.post("/session/logout")
+@mock_login_router.post("/session/logout")
 def mock_logout():
     response = RedirectResponse(url="/staff/login", status_code=303)
     clear_staff_cookies(response)
@@ -2036,17 +2053,27 @@ def search_events(
 
 @router.websocket("/ws/calendars/{calendar_id}")
 async def calendar_updates(websocket: WebSocket, calendar_id: str, session: Session = Depends(get_session)):
-    user_id = _coerce_uuid(websocket.cookies.get("mock_calendar_user_id"))
     calendar_uuid = _coerce_uuid(calendar_id)
-    if user_id is None or calendar_uuid is None:
+    principal = resolve_staff_principal(websocket)
+    if principal is None or principal.user_id is None or calendar_uuid is None:
         await websocket.close(code=1008)
         return
-    user = session.get(User, user_id)
-    if user is None or not user.is_active:
+    if not websocket_origin_allowed(websocket):
         await websocket.close(code=1008)
         return
-    context = get_calendar_context(session, user.id, calendar_uuid, include_archived=True)
-    if context is None:
+
+    try:
+        user = session.get(User, principal.user_id)
+        context = (
+            get_calendar_context(session, user.id, calendar_uuid, include_archived=True)
+            if user is not None and user.is_active
+            else None
+        )
+    finally:
+        # A WebSocket may live for hours. Release its checked-out connection before accept.
+        session.close()
+
+    if user is None or not user.is_active or context is None:
         await websocket.close(code=1008)
         return
     await socket_manager.connect(calendar_uuid, websocket)
@@ -2054,4 +2081,6 @@ async def calendar_updates(websocket: WebSocket, calendar_id: str, session: Sess
         while True:
             await websocket.receive_text()
     except WebSocketDisconnect:
+        pass
+    finally:
         await socket_manager.disconnect(calendar_uuid, websocket)

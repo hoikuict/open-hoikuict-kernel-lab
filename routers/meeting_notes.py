@@ -1,5 +1,6 @@
 import base64
 import binascii
+import logging
 from collections import defaultdict
 from typing import DefaultDict
 
@@ -9,13 +10,15 @@ from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 from sqlmodel import Session, select
 
-from auth import MOCK_ROLE_COOKIE, Role, StaffUser, get_current_staff_user, require_can_edit
+from auth import get_current_staff_user, require_can_edit, resolve_staff_principal
 from database import get_session
 from models import MeetingNote
 from time_utils import utc_now
+from security_config import websocket_origin_allowed
 
 router = APIRouter(prefix="/meeting-notes", tags=["meeting_notes"])
 templates = Jinja2Templates(directory="templates")
+logger = logging.getLogger(__name__)
 
 
 class SaveMeetingNotePayload(BaseModel):
@@ -54,19 +57,6 @@ class MeetingNoteConnectionManager:
 
 
 manager = MeetingNoteConnectionManager()
-
-
-def _staff_user_from_websocket(websocket: WebSocket) -> StaffUser:
-    role = Role.CAN_EDIT
-    as_param = websocket.query_params.get("as")
-    valid_roles = {item.value for item in Role}
-    if as_param and as_param in valid_roles:
-        role = Role(as_param)
-    else:
-        cookie_role = websocket.cookies.get(MOCK_ROLE_COOKIE)
-        if cookie_role and cookie_role in valid_roles:
-            role = Role(cookie_role)
-    return StaffUser(role=role)
 
 
 def _display_name(current_user) -> str:
@@ -183,13 +173,27 @@ async def meeting_note_websocket(
     note_id: int,
     session: Session = Depends(get_session),
 ):
-    note = session.get(MeetingNote, note_id)
-    if not note:
+    principal = resolve_staff_principal(websocket)
+    if principal is None:
+        logger.warning("Meeting note WebSocket rejected: unauthenticated note_id=%s", note_id)
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+        return
+    if not principal.can_edit:
+        logger.warning("Meeting note WebSocket rejected: insufficient permission note_id=%s", note_id)
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+        return
+    if not websocket_origin_allowed(websocket):
+        logger.warning("Meeting note WebSocket rejected: origin policy note_id=%s", note_id)
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
         return
 
-    current_user = _staff_user_from_websocket(websocket)
-    if not current_user.can_edit:
+    try:
+        note_exists = session.get(MeetingNote, note_id) is not None
+    finally:
+        # Release the DB connection before entering the long-lived receive loop.
+        session.close()
+    if not note_exists:
+        logger.warning("Meeting note WebSocket rejected: unknown note_id=%s", note_id)
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
         return
 
@@ -199,6 +203,6 @@ async def meeting_note_websocket(
             data = await websocket.receive_bytes()
             await manager.broadcast(note_id, data, exclude=websocket)
     except WebSocketDisconnect:
-        manager.disconnect(note_id, websocket)
-    except Exception:
+        pass
+    finally:
         manager.disconnect(note_id, websocket)

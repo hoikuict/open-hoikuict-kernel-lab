@@ -4,15 +4,35 @@ import logging
 import os
 from datetime import date, timedelta
 
-from sqlalchemy import text
+from sqlalchemy import event, inspect, text
+from sqlalchemy.engine import make_url
 from sqlmodel import SQLModel, Session, create_engine, select
 
 from family_support import bootstrap_family_data, sync_parent_child_links, sync_family_to_children
-from time_utils import utc_now
+from time_utils import local_today, utc_now
 
 DATABASE_URL = os.getenv("HOIKUICT_DATABASE_URL", "sqlite:///./hoikuict.db")
-engine = create_engine(DATABASE_URL, echo=False)
+_database_url = make_url(DATABASE_URL)
+_is_sqlite_url = _database_url.get_backend_name() == "sqlite"
+engine = create_engine(
+    DATABASE_URL,
+    echo=False,
+    connect_args={"timeout": 15} if _is_sqlite_url else {},
+)
 logger = logging.getLogger(__name__)
+
+
+if _is_sqlite_url:
+    @event.listens_for(engine, "connect")
+    def _set_sqlite_connection_pragmas(dbapi_connection, connection_record) -> None:
+        del connection_record
+        cursor = dbapi_connection.cursor()
+        try:
+            cursor.execute("PRAGMA busy_timeout=15000")
+            cursor.execute("PRAGMA synchronous=NORMAL")
+            cursor.execute("PRAGMA foreign_keys=ON")
+        finally:
+            cursor.close()
 
 DEFAULT_CLASSROOMS = [
     ("ひよこ組", 1),
@@ -27,8 +47,19 @@ def get_session():
 
 
 def create_db_and_tables() -> None:
+    import models  # noqa: F401
     import plan_docs.db_models  # noqa: F401
 
+    if engine.dialect.name != "sqlite":
+        if os.getenv("HOIKUICT_ALLOW_UNMANAGED_SCHEMA") != "1":
+            raise RuntimeError(
+                "組み込みマイグレーションはSQLite専用です。"
+                "他DBではHOIKUICT_ALLOW_UNMANAGED_SCHEMA=1と外部管理済みスキーマが必要です。"
+            )
+        _validate_unmanaged_schema()
+        return
+
+    _enable_sqlite_wal()
     SQLModel.metadata.create_all(engine)
     _migrate_add_child_columns()
     _migrate_add_attendance_columns()
@@ -39,6 +70,45 @@ def create_db_and_tables() -> None:
     _migrate_add_calendar_columns()
     _migrate_survey_tables()
     _migrate_billing_fee_labels()
+    _migrate_zengin_workflow()
+    _validate_sqlite_foreign_keys()
+
+
+def _enable_sqlite_wal() -> None:
+    database_name = engine.url.database
+    if not database_name or database_name == ":memory:":
+        return
+    with engine.connect() as conn:
+        mode = str(conn.execute(text("PRAGMA journal_mode=WAL")).scalar_one()).lower()
+    if mode != "wal":
+        raise RuntimeError(f"SQLite WALを有効化できませんでした: journal_mode={mode}")
+
+
+def _validate_sqlite_foreign_keys() -> None:
+    with engine.connect() as conn:
+        violations = conn.execute(text("PRAGMA foreign_key_check")).fetchall()
+    if violations:
+        sample = ", ".join(str(tuple(row)) for row in violations[:5])
+        raise RuntimeError(f"SQLite外部キー違反があります: {sample}")
+
+
+def _validate_unmanaged_schema() -> None:
+    db_inspector = inspect(engine)
+    existing_tables = set(db_inspector.get_table_names())
+    missing_tables = sorted(set(SQLModel.metadata.tables) - existing_tables)
+    missing_columns: list[str] = []
+    for table_name, table in SQLModel.metadata.tables.items():
+        if table_name not in existing_tables:
+            continue
+        existing_columns = {item["name"] for item in db_inspector.get_columns(table_name)}
+        for column_name in table.columns.keys():
+            if column_name not in existing_columns:
+                missing_columns.append(f"{table_name}.{column_name}")
+    if missing_tables or missing_columns:
+        raise RuntimeError(
+            "外部管理スキーマが不足しています: "
+            f"tables={missing_tables[:10]}, columns={missing_columns[:20]}"
+        )
 
 
 def _table_columns(table_name: str) -> list[str]:
@@ -48,7 +118,7 @@ def _table_columns(table_name: str) -> list[str]:
 
 
 def _log_migration_skip(migration_name: str, exc: Exception) -> None:
-    logger.warning("Skipping %s migration: %s", migration_name, exc)
+    raise RuntimeError(f"{migration_name} migration failed") from exc
 
 
 def _migrate_add_child_columns() -> None:
@@ -268,8 +338,52 @@ def _migrate_billing_fee_labels() -> None:
                     )
                 )
             conn.commit()
-    except Exception:
-        pass
+    except Exception as exc:
+        _log_migration_skip("billing fee label", exc)
+
+
+def _migrate_zengin_workflow() -> None:
+    with engine.begin() as conn:
+        profile_cols = _table_columns("family_billing_profiles")
+        export_cols = _table_columns("zengin_exports")
+        if profile_cols and "new_code_consumed_by_export_id" not in profile_cols:
+            conn.execute(
+                text(
+                    "ALTER TABLE family_billing_profiles "
+                    "ADD COLUMN new_code_consumed_by_export_id INTEGER "
+                    "REFERENCES zengin_exports(id)"
+                )
+            )
+        if profile_cols:
+            conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS "
+                    "ix_family_billing_profiles_new_code_consumed_by_export_id "
+                    "ON family_billing_profiles (new_code_consumed_by_export_id)"
+                )
+            )
+        if export_cols and "submitted_at" not in export_cols:
+            conn.execute(text("ALTER TABLE zengin_exports ADD COLUMN submitted_at DATETIME"))
+            if "downloaded_at" in export_cols:
+                conn.execute(
+                    text(
+                        "UPDATE zengin_exports SET submitted_at = downloaded_at "
+                        "WHERE submitted_at IS NULL"
+                    )
+                )
+        if export_cols:
+            conn.execute(
+                text(
+                    "UPDATE zengin_exports SET status = 'submitted' "
+                    "WHERE status = 'downloaded'"
+                )
+            )
+            conn.execute(
+                text(
+                    "UPDATE zengin_exports SET status = 'superseded' "
+                    "WHERE status = 'reissued'"
+                )
+            )
 
 
 def seed_classroom_data() -> None:
@@ -562,7 +676,7 @@ def seed_parent_portal_data() -> None:
             session.refresh(family)
             sync_parent_child_links(session, family)
 
-        today = date.today()
+        today = local_today()
         enrolled_children = session.exec(
             select(Child)
             .where(Child.status == ChildStatus.enrolled)
@@ -703,7 +817,33 @@ def seed_calendar_data() -> None:
     )
 
     with Session(engine) as session:
-        if session.exec(select(User).where(User.provisioning_source == USER_SOURCE_WEB_DEMO)).first():
+        web_demo_users = session.exec(
+            select(User).where(
+                User.provisioning_source == USER_SOURCE_WEB_DEMO,
+                User.is_active.is_(True),
+            )
+        ).all()
+        if web_demo_users:
+            web_demo_identities = {
+                (user.display_name.strip(), user.staff_role)
+                for user in web_demo_users
+            }
+            local_duplicates = session.exec(
+                select(User).where(
+                    User.provisioning_source == USER_SOURCE_LOCAL_SAMPLE,
+                    User.is_active.is_(True),
+                )
+            ).all()
+            changed = False
+            for user in local_duplicates:
+                if (user.display_name.strip(), user.staff_role) not in web_demo_identities:
+                    continue
+                user.is_active = False
+                user.updated_at = utc_now()
+                session.add(user)
+                changed = True
+            if changed:
+                session.commit()
             return
 
         staff_specs = [

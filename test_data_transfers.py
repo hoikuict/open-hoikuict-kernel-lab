@@ -1,7 +1,13 @@
 import csv
 import io
+import os
+import stat
+import tempfile
+import time
 import unittest
 from datetime import date
+from pathlib import Path
+from unittest.mock import patch
 from xml.etree import ElementTree as ET
 from zipfile import ZIP_DEFLATED, ZipFile
 
@@ -12,7 +18,7 @@ from sqlmodel import SQLModel, Session, create_engine, select
 
 from auth import Role, StaffUser
 import routers.data_transfers as data_transfers_module
-from models import Child, ChildStatus, Classroom, DataTransferLog, Family, ParentAccount
+from models import Child, ChildStatus, Classroom, DataTransferLog, Family
 
 
 def _csv_bytes(rows):
@@ -302,6 +308,30 @@ class DataTransferTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertIn("列名が重複しています", response.text)
+
+    def test_preview_cleanup_removes_only_expired_files_and_uses_private_mode(self):
+        with tempfile.TemporaryDirectory() as directory, patch.dict(
+            os.environ,
+            {"HOIKUICT_PREVIEW_DIR": directory},
+        ):
+            old_path = Path(directory) / "old.json"
+            old_path.write_text("{}", encoding="utf-8")
+            now = time.time()
+            os.utime(old_path, (now - 90000, now - 90000))
+
+            token = data_transfers_module._save_preview_file(
+                "children",
+                "children.csv",
+                b"sample",
+            )
+            new_path = Path(directory) / f"{token}.json"
+            self.assertTrue(new_path.exists())
+            self.assertFalse(old_path.exists())
+            if os.name != "nt":
+                self.assertEqual(stat.S_IMODE(new_path.stat().st_mode), 0o600)
+            filename, content = data_transfers_module._load_preview_file(token, "children")
+            self.assertEqual(filename, "children.csv")
+            self.assertEqual(content, b"sample")
 
 
 if __name__ == "__main__":

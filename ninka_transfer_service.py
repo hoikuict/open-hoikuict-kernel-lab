@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date
 from io import BytesIO
 from posixpath import dirname, join, normpath
 import re
@@ -10,6 +10,8 @@ from xml.etree import ElementTree as ET
 from zipfile import ZIP_DEFLATED, ZipFile
 
 from sqlmodel import Session, select
+
+from time_utils import local_now, local_today
 
 from models import Child, ChildStatus
 
@@ -48,7 +50,7 @@ class NinkaExportSummary:
 
 
 def default_fiscal_year(today: date | None = None) -> int:
-    current = today or date.today()
+    current = today or local_today()
     return current.year if current.month >= 4 else current.year - 1
 
 
@@ -59,7 +61,7 @@ def build_ninka_xlsx_content(
     fiscal_year: int | None = None,
     as_of: date | None = None,
 ) -> tuple[bytes, NinkaExportSummary]:
-    resolved_as_of = as_of or date.today()
+    resolved_as_of = as_of or local_today()
     resolved_fiscal_year = fiscal_year or default_fiscal_year(resolved_as_of)
     summary = _summarize_children(session, fiscal_year=resolved_fiscal_year, as_of=resolved_as_of)
 
@@ -75,7 +77,7 @@ def build_ninka_xlsx_content(
 
     updates: dict[str, dict[str, Any]] = {
         "施設情報": {
-            "C2": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "C2": local_now().strftime("%Y-%m-%d %H:%M:%S"),
             "D2": resolved_fiscal_year,
         },
         "シート４": sheet4_updates,

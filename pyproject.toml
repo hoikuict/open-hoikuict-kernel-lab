@@ -1,0 +1,11 @@
+[tool.ruff]
+target-version = "py312"
+exclude = ["venv", ".venv", "gen_bunnrei"]
+
+[tool.ruff.lint]
+select = ["E9", "F"]
+
+[tool.pytest.ini_options]
+python_files = ["test_*.py"]
+addopts = ["--import-mode=importlib"]
+norecursedirs = ["venv", ".venv", ".demo-port", "gen_bunnrei", "tmp*", "storage"]

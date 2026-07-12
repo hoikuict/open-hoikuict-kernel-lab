@@ -17,7 +17,7 @@ from models import (
     ExtendedCareChargeStatus,
     ExtendedCareFeeRule,
 )
-from time_utils import utc_now
+from time_utils import local_today, utc_now
 
 
 LOCKED_STATUSES = {
@@ -92,7 +92,7 @@ class ExtendedCareMonthlyOverview:
 
 
 def parse_month(raw: Optional[str]) -> tuple[str, date, date]:
-    today = date.today()
+    today = local_today()
     normalized = today.strftime("%Y-%m")
     if raw:
         try:

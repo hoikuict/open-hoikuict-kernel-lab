@@ -41,6 +41,8 @@ from zengin_service import (
     create_customer_number,
     create_zengin_export,
     parse_result_file,
+    mark_zengin_export_submitted,
+    supersede_zengin_export,
 )
 
 
@@ -212,7 +214,13 @@ class BillingZenginTests(unittest.TestCase):
 
         with Session(self.engine) as session:
             export = session.get(ZenginExport, export_id)
-            self.assertEqual(export.status, ZenginExportStatus.downloaded)
+            self.assertEqual(export.status, ZenginExportStatus.created)
+
+        submitted = client.post(f"/billing/zengin/exports/{export_id}/mark-submitted")
+        self.assertEqual(submitted.status_code, 200)
+        with Session(self.engine) as session:
+            export = session.get(ZenginExport, export_id)
+            self.assertEqual(export.status, ZenginExportStatus.submitted)
 
         client.close()
 
@@ -230,6 +238,8 @@ class BillingZenginTests(unittest.TestCase):
             ]
             file_bytes = build_file_bytes(records, "cp932", "CRLF")
 
+            mark_zengin_export_submitted(session, export.id)
+
             parsed = parse_result_file(session, file_bytes, export.id)
 
             self.assertEqual(parsed.errors, [])
@@ -244,6 +254,56 @@ class BillingZenginTests(unittest.TestCase):
             bad_file = build_file_bytes(bad_records, "cp932", "CRLF")
             parsed_bad = parse_result_file(session, bad_file, export.id)
             self.assertTrue(any("トレーラー" in error for error in parsed_bad.errors))
+
+    def test_supersede_restores_only_new_code_owned_by_original_export(self):
+        cycle_id, _ = self._seed_exportable_claim()
+        with Session(self.engine) as session:
+            original = create_zengin_export(session, cycle_id, created_by="tester")
+            original_id = original.id
+            mark_zengin_export_submitted(session, original_id)
+
+            profile = session.exec(select(FamilyBillingProfile)).one()
+            self.assertEqual(profile.new_code, "0")
+            self.assertEqual(profile.new_code_consumed_by_export_id, original_id)
+
+            replacement = supersede_zengin_export(
+                session,
+                original_id,
+                reason="口座情報を訂正",
+                created_by="tester",
+            )
+            replacement_id = replacement.id
+
+        with Session(self.engine) as session:
+            original = session.get(ZenginExport, original_id)
+            replacement = session.get(ZenginExport, replacement_id)
+            profile = session.exec(select(FamilyBillingProfile)).one()
+            claim = session.exec(select(BillingClaim)).one()
+            self.assertEqual(original.status, ZenginExportStatus.superseded)
+            self.assertEqual(original.superseded_by_export_id, replacement_id)
+            self.assertEqual(replacement.status, ZenginExportStatus.created)
+            self.assertEqual(profile.new_code, "1")
+            self.assertIsNone(profile.new_code_consumed_by_export_id)
+            self.assertEqual(claim.zengin_export_id, replacement_id)
+
+    def test_invalid_result_file_returns_422_without_importing(self):
+        cycle_id, _ = self._seed_exportable_claim()
+        with Session(self.engine) as session:
+            export = create_zengin_export(session, cycle_id, created_by="tester")
+            export_id = export.id
+            mark_zengin_export_submitted(session, export_id)
+
+        client = self._zengin_client()
+        response = client.post(
+            f"/billing/zengin/exports/{export_id}/results",
+            files={"file": ("result.txt", b"\x81" * 120, "application/octet-stream")},
+        )
+        self.assertEqual(response.status_code, 422)
+        with Session(self.engine) as session:
+            export = session.get(ZenginExport, export_id)
+            self.assertEqual(export.status, ZenginExportStatus.submitted)
+            self.assertIsNone(export.result_imported_at)
+        client.close()
 
     def test_proration_rounding_and_negative_amount_validation(self):
         rule = MealFeeRule(

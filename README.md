@@ -33,7 +33,7 @@ cd open-hoikuict
 python -m venv .venv
 source .venv/bin/activate  # Windows PowerShell: .\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
-uvicorn main:app --reload
+python -m uvicorn main:app --reload
 ```
 
 起動後、ブラウザで <http://127.0.0.1:8000/> を開きます。
@@ -48,7 +48,7 @@ uvicorn main:app --reload
 python -m scripts.seed_demo_100 --wipe-all
 
 # アプリを起動
-uvicorn main:app --reload
+python -m uvicorn main:app --reload
 ```
 
 含まれる主なデータは次のとおりです。
@@ -85,3 +85,9 @@ uvicorn main:app --reload
 - 公式サイト: <https://open.hoikuict.net>
 
 このプロジェクトは無保証で提供されます。自治体提出、監査、補助金、個人情報保護、医療的ケアなどの判断は、各施設・法人・自治体の規程に従ってください。
+
+## データベース対応
+
+正式サポートするデータベースは SQLite です。組み込みマイグレーションは SQLite 専用で、WAL、外部キー検証、busy timeout を起動時に設定します。
+
+PostgreSQL等を使用する場合は外部でスキーマを管理し、`HOIKUICT_ALLOW_UNMANAGED_SCHEMA=1` を明示してください。アプリは登録済みSQLModelメタデータと実スキーマを照合し、不足があれば起動を停止します。現時点ではAlembicによる正式なマルチDB移行は提供していません。

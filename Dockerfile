@@ -2,6 +2,7 @@ FROM python:3.12-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
+    TZ=Asia/Tokyo \
     HOIKUICT_DATABASE_URL=sqlite:////data/hoikuict.db \
     HOIKU_FACILITY_BUNREI_DB_PATH=/data/facility.sqlite
 

@@ -24,12 +24,10 @@ from models import (
     Child,
     ChildStatus,
     DirectDebitStatus,
-    Family,
     FamilyBillingProfile,
     FeeItem,
     ZenginExport,
     ZenginExportLine,
-    ZenginExportStatus,
 )
 from time_utils import utc_now
 from zengin_service import (
@@ -43,6 +41,8 @@ from zengin_service import (
     create_customer_number,
     create_zengin_export,
     import_result_file,
+    mark_zengin_export_submitted,
+    supersede_zengin_export,
 )
 
 router = APIRouter(prefix="/billing", tags=["billing"])
@@ -950,6 +950,42 @@ def create_zengin_export_from_ui(
     return _dashboard_redirect(message=f"Zengin出力を作成しました: export_id={export.id}")
 
 
+@router.post("/zengin/exports/{export_id}/mark-submitted-ui")
+def mark_zengin_export_submitted_from_ui(
+    export_id: int,
+    session: Session = Depends(get_session),
+    current_user=Depends(get_current_staff_user),
+):
+    require_admin(current_user)
+    try:
+        mark_zengin_export_submitted(session, export_id)
+    except ZenginError as exc:
+        return _dashboard_redirect(error=str(exc))
+    return _dashboard_redirect(message=f"銀行提出済みにしました: export_id={export_id}")
+
+
+@router.post("/zengin/exports/{export_id}/supersede-ui")
+def supersede_zengin_export_from_ui(
+    export_id: int,
+    reason: str = Form(...),
+    session: Session = Depends(get_session),
+    current_user=Depends(get_current_staff_user),
+):
+    require_admin(current_user)
+    try:
+        replacement = supersede_zengin_export(
+            session,
+            export_id,
+            reason=reason,
+            created_by=current_user.name,
+        )
+    except ZenginError as exc:
+        return _dashboard_redirect(error=str(exc))
+    return _dashboard_redirect(
+        message=f"Zengin出力を差し替えました: export_id={replacement.id}"
+    )
+
+
 @router.post("/zengin/exports/{export_id}/import-paid-demo")
 def import_paid_demo_result(
     export_id: int,
@@ -975,7 +1011,10 @@ def import_paid_demo_result(
     records.append(build_trailer_record(lines, encoding, result_records=result_records))
     records.append(build_end_record(encoding))
     file_bytes = build_file_bytes(records, encoding, export.settings_snapshot.get("line_separator", "CRLF"))
-    parsed = import_result_file(session, file_bytes, export_id)
+    try:
+        parsed = import_result_file(session, file_bytes, export_id)
+    except ZenginError as exc:
+        return _dashboard_redirect(error=str(exc))
     if parsed.errors:
         return _dashboard_redirect(error=" / ".join(parsed.errors))
     return _dashboard_redirect(message=f"疑似結果ファイルを取り込みました: {len(parsed.records)}件")
