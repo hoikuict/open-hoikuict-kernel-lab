@@ -66,6 +66,7 @@ python -m uvicorn main:app --reload
 ## ドキュメント
 
 - [導入ロードマップ](docs/roadmap.md)
+- [基幹カーネル・拡張アーキテクチャ仕様](docs/kernel-extension-architecture-spec.md)
 - [開発者向けセットアップ](docs/development.md)
 - [運用責任と本番導入前チェック](docs/operations.md)
 - [セキュリティ最低ライン](docs/security.md)
