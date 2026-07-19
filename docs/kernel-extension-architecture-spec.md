@@ -1,6 +1,7 @@
-# open-hoikuict 基幹カーネル・拡張アーキテクチャ仕様書
+# open-hoikuict Kernel Lab 基幹カーネル・拡張アーキテクチャ仕様書
 
-- 対象リポジトリ: `open-hoikuict`
+- 対象リポジトリ: `open-hoikuict-kernel-lab`
+- Upstream: `hoikuict/open-hoikuict`
 - 文書種別: 上位アーキテクチャ仕様 / 拡張基盤仕様
 - ステータス: Draft
 - 作成日: 2026-07-20
@@ -40,6 +41,8 @@ open-hoikuict Core のバージョン
 
 AIの能力が向上しても、認証、認可、施設境界、監査、データ整合性、適用承認、ロールバックをAIの正しさへ依存させない。
 
+さらに、実在する園児、家庭、保護者、職員の個人情報・健康情報を、外部のオンラインAIへ送信しない。AIへ渡すのは原則として構造、契約、業務ルール、完全な合成データであり、この制約は利便性や施設設定によって緩和できないカーネル不変条件とする。
+
 ### 1.2 最重要成功指標
 
 園固有の要件を実現するために、open-hoikuict本体をフォークする必要がないこと。
@@ -53,6 +56,8 @@ AIの能力が向上しても、認証、認可、施設境界、監査、デー
 | 本番変更のうち、変更セット・承認者・ロールバック方法を追跡できる割合 | 100% |
 | コアに追加された園・自治体固有の条件分岐 | 0件 |
 | DBを直接操作する外部プラグイン | 0件 |
+| 外部オンラインAIへ送信された`personal`以上のデータ | 0件 |
+| AI Gatewayを迂回する外部AI通信経路 | 0件 |
 
 ---
 
@@ -60,7 +65,7 @@ AIの能力が向上しても、認証、認可、施設境界、監査、デー
 
 | 用語 | 定義 |
 | --- | --- |
-| Core / 基幹カーネル | 全施設で守る主体、関係、認証、認可、施設境界、監査、整合性、イベント、拡張実行規則 |
+| Core / 基幹カーネル | 全施設で守る主体、関係、認証、認可、施設境界、監査、整合性、データ分類、AI送信境界、イベント、拡張実行規則 |
 | 業務モジュール | 登降園、連絡帳、健康、請求など、明確な業務能力を提供する交換可能な単位 |
 | 宣言型カスタマイズ | 許可されたスキーマ内で、項目、表示、検証、権限、承認、通知などを記述する設定 |
 | コード拡張 / プラグイン | 宣言だけでは表現できない処理を、制限されたSDKを介して追加する署名・審査対象パッケージ |
@@ -70,6 +75,10 @@ AIの能力が向上しても、認証、認可、施設境界、監査、デー
 | 変更セット | 設定差分、影響分析、移行、テスト、承認、ロールバック情報をまとめた適用単位 |
 | actor | 人間、サービス、端末、AI支援処理を含む操作主体 |
 | tenant / facility | データと権限を分離する施設境界。法人配下に複数施設を持ちうる |
+| Online AI | 施設が管理する信頼境界の外側で稼働し、ネットワーク経由で利用する外部AIサービス |
+| Local AI | 施設または運用主体が管理する信頼境界内で稼働し、許可されたデータを外部送信せず処理するAI |
+| data classification | フィールド、値、派生物へ付与する機微度。AI送信可否、ログ、出力、保持の判定に用いる |
+| AI Gateway | Online AIへの唯一の接続口。分類、目的、送信先、payloadを検証し、許可された要求だけを送信する境界サービス |
 | LTS | セキュリティ修正と互換性維持を長期提供する安定系列 |
 
 本仕様で「必須」と記載した要件は、実装時に満たさなければならない。「推奨」は、採用しない合理的理由をADRへ残す。
@@ -90,6 +99,10 @@ AIの能力が向上しても、認証、認可、施設境界、監査、デー
 6. 保持義務・承認済み・請求確定済み等の保護対象記録を物理削除しないこと
 7. すべての適用済み変更を構成とバージョンから再現できること
 8. 本番変更に人間の明示承認とロールバック手段があること
+9. 実在する個人情報、健康情報、秘密情報をOnline AIへ送信しないこと
+10. 未分類データと自由記述を安全と推定せず、Online AI送信を既定拒否すること
+11. Online AI通信をAI Gatewayへ集約し、モジュール、プラグイン、AI生成コードによる迂回を許さないこと
+12. 加工、要約、仮名化によってデータ分類を自動的に引き下げないこと
 
 ### 3.2 依存方向
 
@@ -105,6 +118,10 @@ flowchart TB
     SDK --> KERNEL
     KERNEL --> DB["1つのDB"]
     KERNEL --> OUTBOX["イベントOutbox"]
+    KERNEL --> PRIVACY["Data Classification / AI Policy"]
+    PRIVACY --> LOCALAI["Local AI"]
+    PRIVACY --> GATEWAY["AI Gateway"]
+    GATEWAY --> ONLINEAI["Online AI"]
 ```
 
 依存規則は次のとおりとする。
@@ -114,6 +131,8 @@ flowchart TB
 - モジュール間連携は、公開サービスまたはバージョン付きドメインイベントを使用する。
 - プラグインはORMモデル、DB接続、内部ルーターを直接利用してはならない。
 - 画面側の非表示だけを権限判定としてはならない。認可は必ずサーバー側で再評価する。
+- モジュール、プラグイン、Web画面はOnline AI SDKや外部AI endpointを直接呼び出してはならない。
+- Online AIの認証情報はAI Gatewayだけが保持し、アプリ本体とプラグインへ渡してはならない。
 
 ### 3.3 初期配置方式
 
@@ -137,6 +156,8 @@ flowchart TB
 - ロール、関係、属性を組み合わせた認可
 - 施設分離と施設コンテキスト
 - 監査ログ、変更履歴、データライフサイクル
+- フィールド単位のデータ分類、分類継承、AI送信ポリシー
+- Local AI / Online AIの信頼境界とAI Gateway
 - ドメインサービス、公開API、イベント契約
 - 宣言型項目、画面、検証、権限、承認、通知、帳票の拡張
 - コード拡張SDKと互換性規則
@@ -168,6 +189,9 @@ flowchart TB
 | authorization | 権限評価、関係ベースの対象範囲、ポリシー判定、deny優先 |
 | subjects | 園児、家庭、保護者、職員、クラス、所属・関係の正規モデル |
 | audit | 重要操作、変更前後、承認、AI利用、拡張実行の追跡 |
+| data_classification | フィールド、値、添付、自由記述、派生物の機微度と分類継承 |
+| ai_policy | 利用目的、実行領域、データ分類、送信先に基づく許可・拒否判定 |
+| ai_gateway | Online AIへの唯一の送信口、payload検査、DLP、送信監査、provider抽象化 |
 | transactions | 原子的更新、冪等性、同時更新制御、整合性制約 |
 | events | イベント定義、Outbox、再送、重複排除、バージョン管理 |
 | extensions | スキーマレジストリ、設定検証、互換性、適用状態 |
@@ -498,15 +522,19 @@ spec:
     - key: checked_at
       type: datetime
       required: true
-      sensitivity: internal
+      classification: personal
+      ai_policy: local_only
     - key: breathing
       type: choice
       options: [normal, attention_required]
       required: true
-      sensitivity: health
+      classification: sensitive_health
+      ai_policy: local_only
     - key: posture
       type: choice
       options: [face_up, face_left, face_right, other]
+      classification: sensitive_health
+      ai_policy: local_only
   rules:
     interval_minutes: 5
   notifications:
@@ -564,7 +592,8 @@ field:
   label: 落ち着くための持ち物
   type: text
   required: false
-  sensitivity: personal
+  classification: personal
+  ai_policy: local_only
   searchable: false
   visible_to: [classroom_staff, guardian]
   editable_by: [classroom_staff, guardian]
@@ -635,7 +664,7 @@ spec:
   network:
     allowedHosts: [api.example.metro.tokyo.jp]
   dataAccess:
-    sensitivity: [personal]
+    classification: [personal]
     purpose: municipal_reporting
   migrations: []
   healthCheck: /health
@@ -697,15 +726,142 @@ spec:
 
 ---
 
-## 16. AIカスタマイザー
+## 16. AIプライバシー境界とAIカスタマイザー
 
-### 16.1 位置づけ
+### 16.1 基本原則
+
+AI利用は追加機能ではなく、カーネルが制御するデータ処理経路とする。最優先の原則は次のとおりである。
+
+> 実在する園児、家庭、保護者、職員の個人情報・健康情報をOnline AIへ送信しない。
+
+Online AIへ送信できるのは、許可された公開情報、個人を含まない構造・契約・業務ルール、完全な合成データに限る。氏名を削除しただけの仮名化データ、実データから作った要約、実ログ、自由記述は、安全と証明されない限り送信できない。
+
+この原則には施設設定や管理者承認による例外を設けない。個人情報を外部AIへ送る別運用を将来検討する場合は、本仕様へ準拠する機能ではなく、法務・契約・セキュリティ審査を伴う別システム境界として扱う。
+
+### 16.2 実行領域
+
+| 実行領域 | 信頼境界 | 扱えるデータ | 主な用途 |
+| --- | --- | --- | --- |
+| Deterministic | 通常アプリ内 | 認可された業務データ | 型検証、ルール、集計、マスキング候補検出 |
+| Local AI | 施設・運用主体の管理内 | 認可と目的制限を満たすデータ | 個人記録を必要とする要約・分類の実験 |
+| Online AI | 施設の管理外 | `public`、許可された`internal`、`synthetic`のみ | 設定生成、コード補助、構造・業務ルール分析 |
+
+Local AIであることは無条件の閲覧権限を意味しない。通常のactor、facility、purpose、データ権限、監査をすべて要求する。
+
+### 16.3 データ分類
+
+すべてのAI入力候補は、値を取得する前に分類が確定していなければならない。
+
+| classification | 例 | Online AI | Local AI |
+| --- | --- | --- | --- |
+| `public` | OSS仕様、公開制度文書 | 許可 | 許可 |
+| `internal` | 個人を含まない園内ルール、画面定義 | ポリシーで許可された目的のみ | 許可 |
+| `synthetic` | 実在人物を元にしない完全な架空データ | 許可 | 許可 |
+| `personal` | 氏名、住所、連絡先、家族関係、個人に結び付く時刻 | 禁止 | 認可・目的制限付き |
+| `sensitive_health` | アレルギー、服薬、体温、障害、医療的ケア | 禁止 | 明示権限・目的制限付き |
+| `secret` | パスワード、APIキー、token、秘密鍵 | 禁止 | 原則禁止。秘密管理機構だけが利用 |
+| `unknown` | 未分類項目、添付、利用者の自由記述 | 禁止 | ポリシー判定まで禁止 |
+
+分類規則:
+
+- フィールド定義は`classification`と`ai_policy`を必須属性として持つ。
+- コンテナ、帳票、イベント、検索結果は、含むデータの最も高い分類を継承する。
+- 要約、翻訳、ベクトル化、集計、仮名化等の派生物は、元データの最も高い分類を継承する。
+- 分類を下げる操作は自動化せず、定義済みのdeclassification手順と監査を要求する。
+- `synthetic`は実在人物のレコードを変形して作ってはならない。独立した生成規則と架空識別子を使用する。
+- `unknown`は安全側へ倒し、Online AI送信を拒否する。
+- マスキングやDLP検査は多層防御であり、送信許可の根拠そのものにはしない。
+
+### 16.4 AI接続アーキテクチャ
+
+```mermaid
+flowchart LR
+    MOD["Module / Customization"] --> REQ["Typed AI Request"]
+    REQ --> CLASSIFY["Data Classification"]
+    CLASSIFY --> POLICY["AI Policy"]
+    POLICY -->|"local_only"| LOCAL["Local AI"]
+    POLICY -->|"online_allowed"| CONTEXT["AI Context Compiler"]
+    CONTEXT --> DLP["Payload Validation / DLP"]
+    DLP --> GATEWAY["AI Gateway"]
+    GATEWAY --> ONLINE["Online AI"]
+    POLICY -->|"denied"| AUDIT["Denied Audit"]
+    LOCAL --> AUDIT
+    GATEWAY --> AUDIT
+```
+
+AI GatewayはOnline AIへの唯一の接続口とする。
+
+- モジュール、プラグイン、画面、ジョブは外部AI SDKを直接利用してはならない。
+- アプリ本体とプラグインにOnline AIのAPIキーを配置してはならない。
+- AI Gatewayだけがprovider endpointと認証情報を保持する。
+- Gatewayはpurpose、execution zone、classification、context artifact、provider policyを検証する。
+- Gatewayは任意のDB検索を行わず、AI Context Compilerが生成した許可済みartifactだけを受け取る。
+- 生payloadをアプリログ、APM、エラートラッカーへ記録しない。
+- Providerの保持・学習利用・データ所在等の条件をpolicyとして版管理する。
+
+アプリケーション上の規則だけでは任意コードによる迂回を完全には防げない。配備環境でも次を必須とする。
+
+- Coreアプリとプラグイン実行環境からAI providerへの直接egressを拒否する。
+- AI Gatewayだけに明示的な接続先allowlistを与える。
+- DNS、proxy、container network policy等で迂回経路を制限する。
+- CIで外部AI SDK import、provider endpoint、未承認HTTP client利用を検査する。
+
+### 16.5 Typed AI Request
+
+AI処理要求は自由な辞書や文字列ではなく、型付き包絡形式を使用する。
+
+```json
+{
+  "request_id": "ai-req:uuid",
+  "actor_id": "staff:uuid",
+  "facility_id": "facility:uuid",
+  "purpose": "customization.compile",
+  "execution_zone": "online",
+  "declared_classification": "internal",
+  "context_artifacts": [
+    "schema:customization-v1",
+    "rules:facility-no-personal-data-v3",
+    "synthetic-example:sleep-check-v1"
+  ],
+  "free_text": null,
+  "provider_policy": "online-no-training-jp-v1"
+}
+```
+
+Online AI要求では、実データのID、DB query、添付、任意ファイルパスを`context_artifacts`として指定できない。artifact registryが、分類、由来、バージョン、完全性hash、Online AI利用可否を管理する。
+
+### 16.6 AI Context Compiler
+
+AI Context Compilerは、Online AIへ渡す情報を許可リスト方式で組み立てる。
+
+送信可能:
+
+- データモデルとスキーマ。ただし実レコードを含めない
+- フィールド定義、分類、権限構造
+- 画面・業務フロー・API・イベント契約
+- 個人を含まない構造化済み業務ルール
+- 完全な合成データとテストfixture
+- 現在のモジュール構成と互換性情報
+
+送信禁止:
+
+- 本番、検証、バックアップDBの実レコード
+- 園児、家庭、保護者、職員を識別・推測できる情報
+- 健康、アレルギー、服薬、障害、医療的ケア情報
+- 保護者連絡、日次連絡、議事録等の自由記述
+- 実ログ、スクリーンショット、添付、OCR結果
+- 実データ由来のembedding、ベクトル検索結果、要約、翻訳
+- 秘密鍵、パスワード、接続文字列、token、Cookie
+
+園職員が入力する自然言語要望は、個人情報が混入しうるため既定で`unknown`とする。Online AIへ送る前に、Local処理で構造化された個人を含まない業務ルールへ変換し、利用者が送信予定artifactを確認する。人間の確認だけで`personal`を`internal`へ変更することはできない。
+
+### 16.7 AIカスタマイザーの位置づけ
 
 AIは本番システムを自由に変更する自動コーダーではなく、自然言語の園内ルールを、検証可能な変更セットへ変換する「変更コンパイラ」として扱う。
 
 ```mermaid
 flowchart LR
-    R["園職員の要望"] --> A["曖昧さ・矛盾の分析"]
+    R["構造化された園内ルール"] --> A["曖昧さ・矛盾の分析"]
     A --> P["変更計画"]
     P --> G["設定・テスト・移行案の生成"]
     G --> V["静的検証・権限影響分析"]
@@ -716,63 +872,48 @@ flowchart LR
     O --> RB["必要時ロールバック"]
 ```
 
-### 16.2 AIが実行できること
+AIが実行できること:
 
-- 要望の構造化
+- 要望の構造化。ただし個人情報を含む入力はLocal処理に限る
 - 不明点、矛盾、過剰権限の指摘
 - 宣言型設定案、モジュール構成案の生成
 - 既存設定との差分生成
 - DB移行案とデータ影響の説明
-- テスト、ダミーデータ、プレビューの生成
-- ロールバック案の生成
-- 人間向けの変更説明
+- テスト、完全な合成データ、プレビューの生成
+- ロールバック案と人間向け変更説明の生成
 
-### 16.3 AIが単独で実行できないこと
+AIが単独で実行できないこと:
 
 - 本番への適用承認
-- 任意SQLの本番実行
-- 任意コードの本番実行
-- 権限・監査・保持ルールの無効化
-- 実在個人データの無制限取得・外部送信
+- 任意SQL・任意コードの本番実行
+- 権限、監査、保持、AI送信ポリシーの無効化
+- Online AIへの個人情報・健康情報・秘密情報の送信
 - 保育、健康、医療、安全に関する最終判断
 - 承認者本人になりすますこと
 
 AIを利用しない手動変更も、同じ変更セットと適用パイプラインを通す。
 
-### 16.4 AIへ渡す情報
+### 16.8 AI出力
 
-原則として次に限定する。
+- AI出力は信頼済みコード・設定・事実として扱わない。
+- 生成物は使用したartifact、provider、model、prompt template、生成時刻、hashをprovenanceとして持つ。
+- Online AI出力は、入力が非個人情報であっても、実在人物らしい情報や秘密らしい文字列が混入していないか検査する。
+- 生成設定は通常のschema、権限、施設境界、移行、テスト、承認ゲートを通す。
+- AI応答をそのまま監査ログ、業務記録、通知本文へ自動転記しない。
 
-- データモデルとスキーマ
-- フィールド定義と機微度
-- 権限構造
-- 画面・業務フロー定義
-- 匿名化・合成した例
-- テスト用ダミーデータ
-- 現在の構成と互換性情報
+### 16.9 AI利用監査
 
-次をプロンプトへ含めてはならない。
+許可・拒否を問わず、最低限次を記録する。
 
-- 本番DBの全量または目的外の実データ
-- 秘密鍵、パスワード、接続文字列、セッショントークン
-- 氏名等を含む未マスクのログ
-- 必要性を確認していない健康情報・自由記述
+- 依頼者、実行時刻、利用目的、facility
+- 選択された実行領域。Deterministic / Local / Online
+- モデル、provider、model version、provider policy version
+- 送信予定artifact ID、分類、由来、hash
+- policy判定、DLP判定、許可・拒否理由
+- prompt template versionと生成物hash
+- 変更セット、検証、承認、適用との相関ID
 
-外部AIへ実データを送る例外は、利用目的、法的・契約上の根拠、最小化、保持、送信先、承認を別途定めた場合に限る。
-
-### 16.5 AI利用監査
-
-最低限、次を記録する。
-
-- 依頼者、実行時刻、利用目的
-- モデル・プロバイダー・モデル版
-- 送信した情報の分類と参照ID
-- プロンプトテンプレート版
-- 生成物のハッシュ
-- 検証結果
-- 承認者と適用された変更セットID
-
-生のプロンプトや応答を保存する場合は、個人情報の混入を前提にアクセス制御と保持期間を設定する。
+監査ログには、生prompt、生応答、個人情報、健康情報、秘密情報を保存しない。調査のために内容保存が必要な場合もOnline AI経路のログへ流さず、分類・権限・保持期限を持つ隔離領域で扱う。
 
 ---
 
@@ -880,7 +1021,10 @@ CLI、管理画面、AIエージェントはいずれも同じ管理サービス
 | 施設間データ漏えい | 施設コンテキスト、サービス側検証、複合制約、越境テスト |
 | 過剰権限の設定生成 | deny優先、権限差分表示、高リスク承認 |
 | プラグインによる情報流出 | capability、接続先allowlist、秘密分離、監査、停止機構 |
-| AIへの個人情報混入 | 入力分類、マスキング、最小化、送信監査、ダミーデータ |
+| AIへの個人情報混入 | 分類必須、`unknown`の既定拒否、許可済みartifactのみ送信、完全な合成データ、拒否監査 |
+| AI Gatewayの迂回 | provider資格情報の分離、直接egress拒否、接続先allowlist、CIでのSDK・endpoint検査 |
+| 仮名化による誤判定 | 派生物の分類継承、declassificationの明示手順、マスキングを許可根拠にしない |
+| ログ・APMからの漏えい | 生payload非記録、構造化監査、隔離領域、保持期限 |
 | 悪意ある設定・プロンプト | スキーマ検証、許可リスト、命令とデータの分離、出力の非信頼扱い |
 | 変更セットのすり替え | artifactハッシュ、承認後不変、署名・完全性検証 |
 | 移行失敗 | 事前バックアップ、リハーサル、原子的移行、補償・復元手順 |
@@ -896,6 +1040,8 @@ CLI、管理画面、AIエージェントはいずれも同じ管理サービス
 ### 18.3 安全側の失敗
 
 - 認可サービス障害時は保護対象操作を拒否する。
+- 分類またはAI Policyを評価できない場合は、Online AI送信を拒否する。
+- AI Gatewayが停止しても業務記録機能を継続できるよう、Online AI処理を主要トランザクションから分離する。
 - 設定解決に失敗した場合は、危険な機能を有効化せず既知の安全な設定または停止を選ぶ。
 - 外部通知・連携の失敗で業務記録自体を失わない。
 - 監査記録を確定できない高リスク更新は成功扱いにしない。
@@ -975,12 +1121,19 @@ hoikuict/
 │   ├── identity/
 │   ├── authorization/
 │   ├── audit/
+│   ├── data_classification/
+│   ├── ai_policy/
 │   ├── events/
 │   ├── extensions/
 │   ├── workflows/
 │   ├── tenancy/
 │   ├── lifecycle/
 │   └── time/
+├── ai/
+│   ├── context_compiler/
+│   ├── gateway_contracts/
+│   ├── local_runtime/
+│   └── artifact_registry/
 ├── modules/
 │   ├── children/
 │   ├── families/
@@ -1001,6 +1154,8 @@ hoikuict/
 │   └── renderer/
 ├── distributions/
 ├── sdk/
+├── services/
+│   └── ai_gateway/
 └── app/
     ├── api/
     ├── web/
@@ -1021,6 +1176,10 @@ hoikuict/
 
 - 本仕様とADR運用を採用する
 - Core不変条件をテストとして追加する
+- データ分類語彙と分類継承規則を固定する
+- Online AIへ送信できるartifactを許可リストで定義する
+- アプリ本体・プラグインへOnline AI資格情報を置かない
+- AI Gateway以外の外部AI SDK・endpoint利用をCIで禁止する
 - 新規の園・自治体固有分岐を禁止する
 - 公開サービスを経由すべき操作の一覧を作る
 - 時刻、actor、request IDの共通コンテキストを定義する
@@ -1029,10 +1188,13 @@ hoikuict/
 
 - PRレビューでCore / module / customization / pluginの分類が必須になる
 - 施設越境、権限拒否、監査生成の基礎テストがCIで動く
+- `personal`、`sensitive_health`、`secret`、`unknown`のOnline AI送信拒否テストがCIで動く
+- AI Gateway以外からOnline AIへ直接接続できない配備構成が定義される
 
 ### Phase 1: カーネル抽出
 
-- identity、authorization、audit、events、timeの共通サービスを作る
+- identity、authorization、audit、data_classification、ai_policy、events、timeの共通サービスを作る
+- Typed AI Request、artifact registry、AI Gatewayの最小契約を作る
 - 主要更新をユースケースサービスへ移す
 - 監査イベントの共通包絡形式を導入する
 - Transactional Outboxを導入する
@@ -1042,6 +1204,7 @@ hoikuict/
 
 - 主要な園児・出欠・権限更新が共通サービス、監査、イベントを通る
 - モジュール外から対象テーブルを更新する経路が検出・禁止される
+- スキーマだけを含むOnline AI要求は許可され、個人情報を混ぜた要求はGateway到達前に拒否される
 
 ### Phase 2: 既存機能のモジュール化
 
@@ -1087,13 +1250,16 @@ hoikuict/
 - 設定・差分・テスト生成
 - 影響分析とリスク分類
 - プレビュー、承認、適用パイプラインとの接続
-- AI入力最小化と利用監査
+- Phase 0・1で構築した分類、artifact registry、AI Policy、AI Gatewayとの接続
+- Local処理による自然言語要望の構造化
+- Online AIへは構造化済みルール、スキーマ、完全な合成データだけを送信
 
 完了条件:
 
 - AIは変更セットを作成できるが、単独では本番適用できない
 - 同一変更セットをAIなしでも検証・適用できる
 - 生成物、検証、承認、適用、ロールバックを追跡できる
+- 実在個人データを一件もOnline AIへ送らず、代表カスタマイズを生成できる
 
 ---
 
@@ -1116,7 +1282,20 @@ hoikuict/
 - [ ] 主要更新に監査とイベントが同一トランザクションで残る
 - [ ] Outbox再送で重複業務処理が起きない
 
-### 23.3 カスタマイズ
+### 23.3 AIプライバシー境界
+
+- [ ] 全AI入力候補フィールドに`classification`と`ai_policy`がある
+- [ ] 派生物が入力元の最も高い分類を継承する
+- [ ] `personal`、`sensitive_health`、`secret`、`unknown`をOnline AIへ送信できない
+- [ ] 実データから作った仮名化データ・要約・embeddingをOnline AIへ送信できない
+- [ ] 自由記述は既定で`unknown`となり、Online AI要求が拒否される
+- [ ] Online AIは許可済みartifact以外のDB ID、query、添付、ファイルパスを受け付けない
+- [ ] アプリ本体とプラグインがOnline AI資格情報を保持しない
+- [ ] AI Gateway以外からprovider endpointへ接続できない
+- [ ] Gateway・Policy障害時はOnline AI送信だけが安全側に停止し、主要業務記録は継続できる
+- [ ] AI送信の許可・拒否を、生payloadなしで監査できる
+
+### 23.4 カスタマイズ
 
 - [ ] マニフェストの未知キー・未知型を拒否する
 - [ ] 合成後設定と出典を表示できる
@@ -1124,16 +1303,18 @@ hoikuict/
 - [ ] 設定を旧版へ戻せる
 - [ ] 園固有要件のために本体フォークを必要としない代表例がある
 
-### 23.4 AI変更フロー
+### 23.5 AI変更フロー
 
 - [ ] AI出力を未信頼入力として同じvalidatorへ通す
 - [ ] AI単独では本番適用できない
 - [ ] 承認対象artifactのハッシュを固定する
 - [ ] 承認後変更されたartifactを適用できない
 - [ ] AIへ送信した情報分類と生成物を監査できる
+- [ ] Online AIへは構造・契約・業務ルール・完全な合成データだけを送信する
+- [ ] 同じ変更要求をLocal AIまたはAIなしの手順へ切り替えられる
 - [ ] ロールバック不能な変更を適用前に明示する
 
-### 23.5 再現性・更新
+### 23.6 再現性・更新
 
 - [ ] Core、module、plugin、schema、customizationの版をlockできる
 - [ ] プレビューと本番が同じlockを使う
@@ -1144,7 +1325,20 @@ hoikuict/
 
 ## 24. 代表シナリオ
 
-### 24.1 0歳児午睡チェック
+### 24.1 個人情報を含むAI要求の拒否
+
+1. 職員が、園児名とアレルギー情報を含む自由記述でカスタマイズを依頼する。
+2. Typed AI Request作成時に自由記述が`unknown`、検出された健康情報が`sensitive_health`と評価される。
+3. AI PolicyがOnline AI実行を拒否し、要求をAI Gatewayへ渡さない。
+4. 拒否理由、分類、artifact hash、actor、purposeを監査する。生の自由記述は監査ログへ保存しない。
+5. 利用者には、個人名を含まない一般化された業務ルールへ直すか、許可されたLocal処理を使う選択肢を提示する。
+6. Local処理で個人を含まない構造化ルールを作成し、利用者が確認する。
+7. AI Context Compilerがスキーマ、構造化ルール、完全な合成データだけをartifact化する。
+8. 再評価で`internal`以下と確認された要求だけをOnline AIへ送信する。
+
+本シナリオでは、管理者であっても`personal`以上のデータをOnline AIへ送信できてはならない。
+
+### 24.2 0歳児午睡チェック
 
 1. 職員が「0歳児は5分ごとに呼吸確認し、漏れは主任へ通知」と依頼する。
 2. AIが対象月齢、確認項目、通知条件の曖昧さを検出する。
@@ -1157,7 +1351,7 @@ hoikuict/
 
 本シナリオでRouter、Coreモデル、任意SQLの変更を必要としてはならない。
 
-### 24.2 自治体帳票
+### 24.3 自治体帳票
 
 1. 既存の標準エクスポートで表現できないことを確認する。
 2. 審査済みの帳票プラグインを選択する。
@@ -1168,7 +1362,7 @@ hoikuict/
 
 プラグインがDBテーブルを直接読んではならない。
 
-### 24.3 退職職員
+### 24.4 退職職員
 
 1. 退職日を確定する。
 2. 有効期間終了時にログインと施設アクセスを停止する。
@@ -1198,6 +1392,9 @@ hoikuict/
 - Core責務の追加・削除
 - 公開API・イベントの破壊的変更
 - 認可、施設境界、監査方式の変更
+- データ分類、分類継承、declassification方式の変更
+- Local AI / Online AIの信頼境界、AI Gateway、egress制御方式の変更
+- Online AI provider policyとartifact許可条件の変更
 - 拡張式言語・プラグイン実行方式の採用
 - データ保持・削除方式の変更
 - マイクロサービス分割
@@ -1234,6 +1431,10 @@ hoikuict/
 10. AIプロバイダー別のデータ取扱い・保存ポリシー
 11. 宣言型UI、帳票、式言語の初期スコープ
 12. 単一施設デプロイと複数施設デプロイの正式サポート範囲
+13. AI Gatewayの分離方式。別プロセス、別コンテナ、外向きproxy等
+14. Local AIの実行基盤、モデル配布、更新、端末要件
+15. artifact registryの保存方式、署名、declassification承認者
+16. Online AI providerの保持・学習利用・データ所在条件を検証する運用
 
 未決事項は、安全境界を曖昧にしたまま実装で既成事実化してはならない。
 
@@ -1244,5 +1445,7 @@ hoikuict/
 本仕様の目的は、AIによる開発速度だけを上げることではない。
 
 園児、家庭、職員の情報を扱うシステムとして、AIやプラグインが誤ること、園の運用が変わること、本体が長期に更新されることを前提に、それでも安全に変更し続けられる接続面を先に作ることにある。
+
+その接続面は、実在する個人の情報をOnline AIへ渡さなくても成立しなければならない。AIが必要とする情報は、業務の構造、契約、権限、ルール、完全な合成例として提供し、実データは施設の信頼境界内に留める。
 
 5年後にAIがどれほど進化しても、AIへ全面的な本番権限を渡す必要がなく、安定した構造・契約・権限・検証・承認・ロールバックの上で、その能力を利用できる状態を最終目標とする。
