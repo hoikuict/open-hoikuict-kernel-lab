@@ -14,9 +14,7 @@ cd open-hoikuict
 python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt -r requirements-dev.txt
-export HOIKUICT_ENV=development
-export HOIKUICT_ENABLE_MOCK_AUTH=1
-export HOIKUICT_KIOSK_ACCESS_MODE=open
+cp .env.example .env
 uvicorn main:app --reload
 ```
 
@@ -26,9 +24,7 @@ Windows PowerShell の場合:
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt -r requirements-dev.txt
-$env:HOIKUICT_ENV = "development"
-$env:HOIKUICT_ENABLE_MOCK_AUTH = "1"
-$env:HOIKUICT_KIOSK_ACCESS_MODE = "open"
+Copy-Item .env.example .env
 uvicorn main:app --reload
 ```
 

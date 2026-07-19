@@ -3,6 +3,12 @@ from contextlib import asynccontextmanager
 from contextlib import suppress
 from urllib.parse import urlencode
 
+from dotenv import load_dotenv
+
+# Load local development settings before importing modules that inspect the
+# environment. Existing process environment variables always take precedence.
+load_dotenv()
+
 from fastapi import Depends, FastAPI
 from fastapi.responses import RedirectResponse
 

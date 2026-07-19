@@ -177,6 +177,12 @@ def sync_health_records_from_legacy_extra_data(
 
     desired_names = _normalized_legacy_allergy_names(child.extra_data)
     if desired_names:
+        if not profile.has_allergy:
+            profile.has_allergy = True
+            profile.updated_by = actor_name
+            profile.updated_at = now
+            session.add(profile)
+            changed = True
         existing_allergies = load_child_allergies(session, child.id, include_inactive=True)
         existing_by_name: dict[str, list[ChildAllergy]] = {}
         for allergy in existing_allergies:
@@ -307,6 +313,22 @@ def expired_allergy_count(allergies: Iterable[ChildAllergy], *, today: Optional[
     return sum(1 for allergy in allergies if allergy.valid_until is not None and allergy.valid_until < target_day)
 
 
+def has_priority_management_items(profile: Optional[ChildHealthProfile]) -> bool:
+    if profile is None:
+        return False
+    return any(
+        (
+            profile.has_allergy,
+            profile.has_epipen,
+            profile.has_anaphylaxis,
+            profile.has_febrile_seizure,
+            profile.has_nursemaids_elbow,
+            profile.has_medication,
+            bool((profile.other_management_items or "").strip()),
+        )
+    )
+
+
 def build_health_attention_labels(
     *,
     profile: Optional[ChildHealthProfile],
@@ -317,10 +339,20 @@ def build_health_attention_labels(
     labels: list[str] = []
     latest_record = latest_health_check(check_records)
 
-    if profile and profile.requires_medical_care:
-        labels.append("医療的ケア")
-    if profile and profile.epipen_required:
+    if profile and profile.has_allergy:
+        labels.append("アレルギー")
+    if profile and profile.has_epipen:
         labels.append("エピペン")
+    if profile and profile.has_anaphylaxis:
+        labels.append("アナフィラキシー")
+    if profile and profile.has_febrile_seizure:
+        labels.append("熱性けいれん")
+    if profile and profile.has_nursemaids_elbow:
+        labels.append("肘内障")
+    if profile and profile.has_medication:
+        labels.append("与薬")
+    if profile and (profile.other_management_items or "").strip():
+        labels.append("その他管理事項")
     if expired_allergy_count(allergies, today=today):
         labels.append("アレルギー期限切れ")
     if latest_record and latest_record.requires_followup:

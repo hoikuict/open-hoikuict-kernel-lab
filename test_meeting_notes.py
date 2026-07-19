@@ -64,6 +64,7 @@ class MeetingNoteRouterTests(unittest.TestCase):
             json={
                 "title": "朝会メモ",
                 "content_base64": base64.b64encode(sample_state).decode("utf-8"),
+                "plain_text": "今日の連絡事項を確認しました。",
             },
         )
         self.assertEqual(save_response.status_code, 200)
@@ -74,6 +75,7 @@ class MeetingNoteRouterTests(unittest.TestCase):
 
         self.assertEqual(saved_note.title, "朝会メモ")
         self.assertEqual(saved_note.content, sample_state)
+        self.assertEqual(saved_note.search_text, "今日の連絡事項を確認しました。")
         self.assertEqual(saved_note.updated_by, "テスト担当")
 
         content_response = self.client.get(f"/meeting-notes/api/{note.id}/content")
@@ -102,6 +104,42 @@ class MeetingNoteRouterTests(unittest.TestCase):
         detail_response = self.client.get(f"/meeting-notes/{note_id}")
         self.assertEqual(detail_response.status_code, 200)
         self.assertIn("閲覧専用", detail_response.text)
+        self.assertIn("positionFloatingToolbar", detail_response.text)
+        self.assertIn("書式オプション", detail_response.text)
+        self.assertIn("pointerup", detail_response.text)
+
+    def test_list_can_search_title_body_author_and_id(self):
+        with Session(self.engine) as session:
+            safety_note = MeetingNote(
+                title="防災会議",
+                search_text="避難経路と備蓄品を確認",
+                created_by="園長",
+                updated_by="主任",
+            )
+            lunch_note = MeetingNote(
+                title="給食会議",
+                search_text="来月の献立を検討",
+                created_by="栄養士",
+                updated_by="栄養士",
+            )
+            session.add(safety_note)
+            session.add(lunch_note)
+            session.commit()
+            session.refresh(safety_note)
+
+        title_response = self.client.get("/meeting-notes/?q=防災")
+        body_response = self.client.get("/meeting-notes/?q=備蓄品")
+        author_response = self.client.get("/meeting-notes/?q=栄養士")
+        id_response = self.client.get(f"/meeting-notes/?q={safety_note.id}")
+        missing_response = self.client.get("/meeting-notes/?q=該当なし")
+
+        self.assertIn("防災会議", title_response.text)
+        self.assertNotIn("給食会議", title_response.text)
+        self.assertIn("防災会議", body_response.text)
+        self.assertIn("給食会議", author_response.text)
+        self.assertIn("防災会議", id_response.text)
+        self.assertIn("検索結果: <span", title_response.text)
+        self.assertIn("一致する議事録がありません", missing_response.text)
 
     def test_websocket_broadcasts_updates_to_other_editors(self):
         with Session(self.engine) as session:

@@ -4,10 +4,11 @@ import logging
 from collections import defaultdict
 from typing import DefaultDict
 
-from fastapi import APIRouter, Depends, Form, HTTPException, Request, WebSocket, WebSocketDisconnect, status
+from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request, WebSocket, WebSocketDisconnect, status
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
+from sqlalchemy import or_
 from sqlmodel import Session, select
 
 from auth import get_current_staff_user, require_can_edit, resolve_staff_principal
@@ -24,6 +25,7 @@ logger = logging.getLogger(__name__)
 class SaveMeetingNotePayload(BaseModel):
     title: str
     content_base64: str
+    plain_text: str = ""
 
 
 class MeetingNoteConnectionManager:
@@ -79,16 +81,30 @@ def _load_meeting_note(session: Session, note_id: int) -> MeetingNote:
 @router.get("/", response_class=HTMLResponse)
 def meeting_note_list(
     request: Request,
+    q: str = Query(default="", max_length=100),
     session: Session = Depends(get_session),
     current_user=Depends(get_current_staff_user),
 ):
-    notes = session.exec(select(MeetingNote).order_by(MeetingNote.updated_at.desc(), MeetingNote.id.desc())).all()
+    current_query = q.strip()
+    statement = select(MeetingNote)
+    if current_query:
+        filters = [
+            MeetingNote.title.contains(current_query, autoescape=True),
+            MeetingNote.search_text.contains(current_query, autoescape=True),
+            MeetingNote.created_by.contains(current_query, autoescape=True),
+            MeetingNote.updated_by.contains(current_query, autoescape=True),
+        ]
+        if current_query.isdigit():
+            filters.append(MeetingNote.id == int(current_query))
+        statement = statement.where(or_(*filters))
+    notes = session.exec(statement.order_by(MeetingNote.updated_at.desc(), MeetingNote.id.desc())).all()
     return templates.TemplateResponse(
         request,
         "meeting_notes/list.html",
         {
             "notes": notes,
             "current_user": current_user,
+            "current_query": current_query,
         },
     )
 
@@ -160,6 +176,7 @@ def save_meeting_note(
 
     note.title = (payload.title or "").strip() or "無題の議事録"
     note.content = decoded_content
+    note.search_text = payload.plain_text.strip() or None
     note.updated_at = utc_now()
     note.updated_by = _display_name(current_user)
     session.add(note)

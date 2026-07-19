@@ -1,18 +1,18 @@
-<article class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-  <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-    <div>
-      <p class="text-sm font-semibold text-slate-900">{{ message.author_name }}</p>
-      <p class="text-xs text-slate-500">{{ message.created_at.strftime("%Y-%m-%d %H:%M") }}</p>
+<article class="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+  <div class="flex items-center justify-between gap-3">
+    <div class="flex min-w-0 items-baseline gap-2">
+      <p class="shrink-0 text-sm font-semibold text-slate-900">{{ message.author_name }}</p>
+      <p class="truncate text-xs text-slate-500">{{ message.created_at.strftime("%Y-%m-%d %H:%M") }}</p>
     </div>
-    <div class="flex items-center gap-2">
+    <div class="flex shrink-0 items-center gap-2">
       {% set parent_message = message %}
       {% set reply_count = reply_counts.get(message.id, 0) %}
       {% include "staff_rooms/_thread_button.html" %}
     </div>
   </div>
 
-  <div class="mt-4 rounded-xl {% if message.is_deleted %}bg-slate-100{% else %}bg-slate-50{% endif %} px-4 py-3">
-    <p class="whitespace-pre-line text-sm leading-6 text-slate-700">{{ message.display_body }}</p>
+  <div class="mt-2 rounded-lg {% if message.is_deleted %}bg-slate-100{% else %}bg-slate-50{% endif %} px-3 py-2">
+    <p class="whitespace-pre-line text-sm leading-5 text-slate-700">{{ message.display_body }}</p>
   </div>
 
   {% if not message.is_deleted and message.attachments %}

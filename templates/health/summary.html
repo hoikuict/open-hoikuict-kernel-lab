@@ -81,17 +81,30 @@
           <a href="/children/{{ child.id }}/health/profile" class="text-sm font-medium text-emerald-700 hover:underline">編集</a>
         </div>
         <div class="mt-4 flex flex-wrap gap-2">
-          <span class="rounded-full px-3 py-1 text-sm font-medium {% if profile.requires_medical_care %}bg-rose-100 text-rose-700{% else %}bg-slate-100 text-slate-600{% endif %}">
-            医療的ケア {% if profile.requires_medical_care %}あり{% else %}なし{% endif %}
+          <span class="rounded-full px-3 py-1 text-sm font-medium {% if profile.has_allergy %}bg-rose-100 text-rose-700{% else %}bg-slate-100 text-slate-600{% endif %}">
+            アレルギー {% if profile.has_allergy %}あり{% else %}なし{% endif %}
           </span>
-          <span class="rounded-full px-3 py-1 text-sm font-medium {% if profile.epipen_required %}bg-amber-100 text-amber-700{% else %}bg-slate-100 text-slate-600{% endif %}">
-            エピペン {% if profile.epipen_required %}必要{% else %}不要{% endif %}
+          <span class="rounded-full px-3 py-1 text-sm font-medium {% if profile.has_epipen %}bg-amber-100 text-amber-700{% else %}bg-slate-100 text-slate-600{% endif %}">
+            エピペン {% if profile.has_epipen %}あり{% else %}なし{% endif %}
           </span>
-          <span class="rounded-full px-3 py-1 text-sm font-medium {% if profile.sids_risk_flag %}bg-violet-100 text-violet-700{% else %}bg-slate-100 text-slate-600{% endif %}">
-            SIDSリスク {% if profile.sids_risk_flag %}高{% else %}通常{% endif %}
+          <span class="rounded-full px-3 py-1 text-sm font-medium {% if profile.has_anaphylaxis %}bg-rose-100 text-rose-700{% else %}bg-slate-100 text-slate-600{% endif %}">
+            アナフィラキシー {% if profile.has_anaphylaxis %}あり{% else %}なし{% endif %}
+          </span>
+          <span class="rounded-full px-3 py-1 text-sm font-medium {% if profile.has_febrile_seizure %}bg-violet-100 text-violet-700{% else %}bg-slate-100 text-slate-600{% endif %}">
+            熱性けいれん {% if profile.has_febrile_seizure %}あり{% else %}なし{% endif %}
+          </span>
+          <span class="rounded-full px-3 py-1 text-sm font-medium {% if profile.has_nursemaids_elbow %}bg-sky-100 text-sky-700{% else %}bg-slate-100 text-slate-600{% endif %}">
+            肘内障 {% if profile.has_nursemaids_elbow %}あり{% else %}なし{% endif %}
+          </span>
+          <span class="rounded-full px-3 py-1 text-sm font-medium {% if profile.has_medication %}bg-emerald-100 text-emerald-700{% else %}bg-slate-100 text-slate-600{% endif %}">
+            与薬 {% if profile.has_medication %}あり{% else %}なし{% endif %}
           </span>
         </div>
         <dl class="mt-5 grid gap-4 md:grid-cols-2">
+          <div class="md:col-span-2">
+            <dt class="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">その他の管理事項</dt>
+            <dd class="mt-2 text-sm text-slate-700">{{ profile.other_management_items or "未登録" }}</dd>
+          </div>
           <div>
             <dt class="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">既往歴・医療メモ</dt>
             <dd class="mt-2 text-sm text-slate-700">{{ profile.medical_history or "未登録" }}</dd>
@@ -185,7 +198,7 @@
       <div class="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
         <h2 class="text-lg font-semibold text-slate-900">次の作業</h2>
         <div class="mt-4 space-y-3 text-sm text-slate-700">
-          <p>1. 健康プロフィールで医療的ケア、既往歴、緊急連絡先を確認する</p>
+          <p>1. 健康プロフィールで重点管理項目、既往歴、緊急連絡先を確認する</p>
           <p>2. アレルギー管理で有効期限や対応方針を登録する</p>
           <p>3. 健診記録で身長・体重を登録し、推移グラフを確認する</p>
         </div>

@@ -147,6 +147,52 @@ class ChildHealthRouterTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 403)
 
+    def test_health_profile_uses_nursery_priority_management_items(self):
+        page = self.client.get(f"/children/{self.child_id}/health/profile")
+
+        self.assertEqual(page.status_code, 200)
+        for label in (
+            "アレルギーあり",
+            "エピペンあり",
+            "アナフィラキシーあり",
+            "熱性けいれんあり",
+            "肘内障あり",
+            "与薬あり",
+            "その他の管理事項",
+        ):
+            self.assertIn(label, page.text)
+        self.assertNotIn("医療的ケアが必要", page.text)
+        self.assertNotIn("SIDS高リスク対象", page.text)
+
+    def test_can_save_priority_management_items(self):
+        response = self.client.post(
+            f"/children/{self.child_id}/health/profile",
+            data={
+                "has_allergy": "on",
+                "has_epipen": "on",
+                "has_anaphylaxis": "on",
+                "has_febrile_seizure": "on",
+                "has_nursemaids_elbow": "on",
+                "has_medication": "on",
+                "other_management_items": "食後の運動に注意",
+            },
+            follow_redirects=False,
+        )
+
+        self.assertEqual(response.status_code, 303)
+        with Session(self.engine) as session:
+            profile = session.exec(
+                select(ChildHealthProfile).where(ChildHealthProfile.child_id == self.child_id)
+            ).first()
+
+        self.assertTrue(profile.has_allergy)
+        self.assertTrue(profile.has_epipen)
+        self.assertTrue(profile.has_anaphylaxis)
+        self.assertTrue(profile.has_febrile_seizure)
+        self.assertTrue(profile.has_nursemaids_elbow)
+        self.assertTrue(profile.has_medication)
+        self.assertEqual(profile.other_management_items, "食後の運動に注意")
+
     def test_can_edit_existing_allergy(self):
         with Session(self.engine) as session:
             session.add(

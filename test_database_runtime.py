@@ -71,8 +71,71 @@ class DatabaseRuntimeTests(unittest.TestCase):
                                 text("PRAGMA table_info(family_billing_profiles)")
                             )
                         }
+                        meeting_note_columns = {
+                            row[1]
+                            for row in connection.execute(
+                                text("PRAGMA table_info(meeting_notes)")
+                            )
+                        }
                 self.assertIn("submitted_at", export_columns)
                 self.assertIn("new_code_consumed_by_export_id", profile_columns)
+                self.assertIn("search_text", meeting_note_columns)
+            finally:
+                engine.dispose()
+
+    def test_health_profile_migration_adds_priority_items_and_backfills_equivalent_data(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "legacy-health.db"
+            raw = sqlite3.connect(path)
+            raw.execute(
+                "CREATE TABLE child_health_profiles ("
+                "id INTEGER PRIMARY KEY, child_id INTEGER NOT NULL, "
+                "epipen_required BOOLEAN DEFAULT 0 NOT NULL)"
+            )
+            raw.execute(
+                "CREATE TABLE child_allergies ("
+                "id INTEGER PRIMARY KEY, child_id INTEGER NOT NULL, "
+                "is_active BOOLEAN DEFAULT 1 NOT NULL)"
+            )
+            raw.execute(
+                "INSERT INTO child_health_profiles (id, child_id, epipen_required) VALUES (1, 10, 1)"
+            )
+            raw.execute(
+                "INSERT INTO child_allergies (id, child_id, is_active) VALUES (1, 10, 1)"
+            )
+            raw.commit()
+            raw.close()
+
+            engine = self._engine(path)
+            try:
+                with patch.object(database, "engine", engine):
+                    database._migrate_add_child_health_profile_columns()
+                    with engine.connect() as connection:
+                        columns = {
+                            row[1]
+                            for row in connection.execute(
+                                text("PRAGMA table_info(child_health_profiles)")
+                            )
+                        }
+                        values = connection.execute(
+                            text(
+                                "SELECT has_allergy, has_epipen, has_anaphylaxis, "
+                                "has_febrile_seizure, has_nursemaids_elbow, has_medication, "
+                                "other_management_items FROM child_health_profiles WHERE id = 1"
+                            )
+                        ).one()
+                self.assertTrue(
+                    {
+                        "has_allergy",
+                        "has_epipen",
+                        "has_anaphylaxis",
+                        "has_febrile_seizure",
+                        "has_nursemaids_elbow",
+                        "has_medication",
+                        "other_management_items",
+                    }.issubset(columns)
+                )
+                self.assertEqual(tuple(values), (1, 1, 0, 0, 0, 0, None))
             finally:
                 engine.dispose()
 

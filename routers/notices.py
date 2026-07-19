@@ -1,9 +1,10 @@
 from datetime import datetime
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Form, HTTPException, Request
+from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
+from sqlalchemy import case, or_
 from sqlalchemy.orm import selectinload
 from sqlmodel import Session, select
 
@@ -22,6 +23,18 @@ from time_utils import ensure_utc, utc_now
 
 router = APIRouter(prefix="/notices", tags=["notices"])
 templates = Jinja2Templates(directory="templates")
+NOTICE_SORT_OPTIONS = (
+    ("updated_desc", "更新日時（新しい順）"),
+    ("updated_asc", "更新日時（古い順）"),
+    ("created_desc", "作成日時（新しい順）"),
+    ("priority_desc", "優先度（重要→通常）"),
+    ("priority_asc", "優先度（通常→重要）"),
+    ("status_published", "状態（公開中→下書き）"),
+    ("status_draft", "状態（下書き→公開中）"),
+    ("title_asc", "タイトル（昇順）"),
+)
+
+
 def _parse_optional_datetime(raw: str) -> Optional[datetime]:
     value = (raw or "").strip()
     if not value:
@@ -140,17 +153,56 @@ def _load_reference_data(session: Session) -> tuple[list[Classroom], list[Child]
 @router.get("/", response_class=HTMLResponse)
 def notice_list(
     request: Request,
+    q: str = Query(default="", max_length=100),
+    status_filter: str = Query(default="all", alias="status"),
+    priority_filter: str = Query(default="all", alias="priority"),
+    sort: str = Query(default="updated_desc"),
     session: Session = Depends(get_session),
     current_user=Depends(get_current_staff_user),
 ):
+    current_query = q.strip()
+    current_status = status_filter if status_filter in {"all", *(item.value for item in NoticeStatus)} else "all"
+    current_priority = (
+        priority_filter if priority_filter in {"all", *(item.value for item in NoticePriority)} else "all"
+    )
+    valid_sort_values = {value for value, _label in NOTICE_SORT_OPTIONS}
+    current_sort = sort if sort in valid_sort_values else "updated_desc"
+
     classrooms, children = _load_reference_data(session)
     classrooms_by_id = {classroom.id: classroom for classroom in classrooms}
     children_by_id = {child.id: child for child in children}
-    notices = session.exec(
+    statement = (
         select(Notice)
         .options(selectinload(Notice.targets), selectinload(Notice.reads))
-        .order_by(Notice.updated_at.desc(), Notice.created_at.desc())
-    ).all()
+    )
+    if current_query:
+        search_filters = [
+            Notice.title.contains(current_query, autoescape=True),
+            Notice.body.contains(current_query, autoescape=True),
+            Notice.created_by.contains(current_query, autoescape=True),
+        ]
+        if current_query.isdigit():
+            search_filters.append(Notice.id == int(current_query))
+        statement = statement.where(or_(*search_filters))
+    if current_status != "all":
+        statement = statement.where(Notice.status == NoticeStatus(current_status))
+    if current_priority != "all":
+        statement = statement.where(Notice.priority == NoticePriority(current_priority))
+
+    priority_rank = case((Notice.priority == NoticePriority.high, 0), else_=1)
+    status_published_rank = case((Notice.status == NoticeStatus.published, 0), else_=1)
+    status_draft_rank = case((Notice.status == NoticeStatus.draft, 0), else_=1)
+    order_by = {
+        "updated_desc": (Notice.updated_at.desc(), Notice.created_at.desc()),
+        "updated_asc": (Notice.updated_at.asc(), Notice.created_at.asc()),
+        "created_desc": (Notice.created_at.desc(), Notice.id.desc()),
+        "priority_desc": (priority_rank.asc(), Notice.updated_at.desc()),
+        "priority_asc": (priority_rank.desc(), Notice.updated_at.desc()),
+        "status_published": (status_published_rank.asc(), Notice.updated_at.desc()),
+        "status_draft": (status_draft_rank.asc(), Notice.updated_at.desc()),
+        "title_asc": (Notice.title.asc(), Notice.updated_at.desc()),
+    }[current_sort]
+    notices = session.exec(statement.order_by(*order_by)).all()
     target_labels = {notice.id: _target_label(notice, classrooms_by_id, children_by_id) for notice in notices}
 
     return templates.TemplateResponse(
@@ -161,6 +213,13 @@ def notice_list(
             "notices": notices,
             "target_labels": target_labels,
             "current_user": current_user,
+            "current_query": current_query,
+            "current_status": current_status,
+            "current_priority": current_priority,
+            "current_sort": current_sort,
+            "status_options": list(NoticeStatus),
+            "priority_options": list(NoticePriority),
+            "sort_options": NOTICE_SORT_OPTIONS,
         },
     )
 

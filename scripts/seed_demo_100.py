@@ -92,7 +92,9 @@ JSON_FIELDS = {
 }
 BOOL_FIELDS = {
     "is_primary_contact", "diagnosis_confirmed", "removal_required", "is_active", "requires_medical_care",
-    "epipen_required", "sids_risk_flag", "breastfed", "requires_followup", "is_calendar_admin",
+    "epipen_required", "sids_risk_flag", "has_allergy", "has_epipen", "has_anaphylaxis",
+    "has_febrile_seizure", "has_nursemaids_elbow", "has_medication", "breastfed",
+    "requires_followup", "is_calendar_admin",
     "is_primary", "is_archived", "is_visible", "is_all_day", "is_deleted", "is_read",
     "is_required", "value_bool",
 }

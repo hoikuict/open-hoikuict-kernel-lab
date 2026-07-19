@@ -1,14 +1,24 @@
 import unittest
-from datetime import date
+from datetime import date, timedelta
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy.pool import StaticPool
 from sqlmodel import SQLModel, Session, create_engine
 
-from models import Child, ChildStatus, Classroom, Notice, NoticeTarget, NoticeTargetType
+from models import (
+    Child,
+    ChildStatus,
+    Classroom,
+    Notice,
+    NoticePriority,
+    NoticeStatus,
+    NoticeTarget,
+    NoticeTargetType,
+)
 import routers.notices as notices_module
 from testing_helpers import authenticate_mock_staff
+from time_utils import utc_now
 
 
 class NoticeRouterTests(unittest.TestCase):
@@ -80,6 +90,59 @@ class NoticeRouterTests(unittest.TestCase):
         )
 
         self.assertEqual(response.status_code, 400)
+
+    def test_list_can_search_filter_and_sort_notices(self):
+        now = utc_now()
+        with Session(self.engine) as session:
+            important_published = Notice(
+                title="避難訓練のお知らせ",
+                body="防災頭巾を持参してください。",
+                status=NoticeStatus.published,
+                priority=NoticePriority.high,
+                created_by="園長",
+                updated_at=now - timedelta(days=2),
+            )
+            normal_draft = Notice(
+                title="来月の予定",
+                body="行事予定を確認中です。",
+                status=NoticeStatus.draft,
+                priority=NoticePriority.normal,
+                created_by="主任",
+                updated_at=now,
+            )
+            important_draft = Notice(
+                title="緊急連絡網",
+                body="連絡先を再確認します。",
+                status=NoticeStatus.draft,
+                priority=NoticePriority.high,
+                created_by="事務",
+                updated_at=now - timedelta(days=1),
+            )
+            session.add(important_published)
+            session.add(normal_draft)
+            session.add(important_draft)
+            session.commit()
+            session.refresh(important_published)
+
+        body_search = self.client.get("/notices/?q=防災頭巾")
+        author_search = self.client.get("/notices/?q=主任")
+        id_search = self.client.get(f"/notices/?q={important_published.id}")
+        published_only = self.client.get("/notices/?status=published")
+        high_only = self.client.get("/notices/?priority=high")
+        priority_sorted = self.client.get("/notices/?sort=priority_desc")
+        status_sorted = self.client.get("/notices/?sort=status_published")
+
+        self.assertIn("避難訓練のお知らせ", body_search.text)
+        self.assertNotIn("来月の予定", body_search.text)
+        self.assertIn("来月の予定", author_search.text)
+        self.assertIn("避難訓練のお知らせ", id_search.text)
+        self.assertIn("避難訓練のお知らせ", published_only.text)
+        self.assertNotIn("緊急連絡網", published_only.text)
+        self.assertIn("避難訓練のお知らせ", high_only.text)
+        self.assertIn("緊急連絡網", high_only.text)
+        self.assertNotIn("来月の予定", high_only.text)
+        self.assertLess(priority_sorted.text.index("緊急連絡網"), priority_sorted.text.index("来月の予定"))
+        self.assertLess(status_sorted.text.index("避難訓練のお知らせ"), status_sorted.text.index("来月の予定"))
 
 
 if __name__ == "__main__":

@@ -541,6 +541,13 @@ class ChildHealthProfile(SQLModel, table=True):
     primary_doctor_address: Optional[str] = None
     hospital_name: Optional[str] = None
     hospital_phone: Optional[str] = None
+    has_allergy: bool = Field(default=False)
+    has_epipen: bool = Field(default=False)
+    has_anaphylaxis: bool = Field(default=False)
+    has_febrile_seizure: bool = Field(default=False)
+    has_nursemaids_elbow: bool = Field(default=False)
+    has_medication: bool = Field(default=False)
+    other_management_items: Optional[str] = None
     requires_medical_care: bool = Field(default=False)
     medical_care_details: Optional[str] = None
     epipen_required: bool = Field(default=False)
@@ -1185,6 +1192,7 @@ class MeetingNote(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     title: str = Field(default="無題の議事録")
     content: Optional[bytes] = None
+    search_text: Optional[str] = None
     created_by: Optional[str] = None
     updated_by: Optional[str] = None
     created_at: datetime = Field(default_factory=utc_now)

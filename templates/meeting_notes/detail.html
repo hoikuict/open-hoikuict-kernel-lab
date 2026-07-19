@@ -7,13 +7,29 @@
 <link href="https://cdn.jsdelivr.net/npm/quill-cursors@4.0.2/dist/quill-cursors.css" rel="stylesheet">
 <style>
   .meeting-editor .ql-toolbar.ql-snow {
-    border: none;
-    border-bottom: 1px solid rgb(226 232 240);
-    padding: 0.9rem;
+    position: fixed;
+    z-index: 60;
+    display: none;
+    max-width: calc(100vw - 1rem);
+    border: 1px solid rgb(203 213 225);
+    border-radius: 0.75rem;
+    background: rgb(255 255 255 / 0.98);
+    padding: 0.5rem 0.65rem;
+    box-shadow: 0 12px 30px rgb(15 23 42 / 0.18);
+    backdrop-filter: blur(8px);
+  }
+
+  .meeting-editor .ql-toolbar.ql-snow.is-visible {
+    display: block;
+  }
+
+  .meeting-editor .ql-toolbar.ql-snow .ql-formats {
+    margin-right: 0.55rem;
   }
 
   .meeting-editor .ql-container.ql-snow {
     border: none;
+    border-radius: 1rem;
     min-height: 28rem;
     font-size: 0.975rem;
   }
@@ -98,7 +114,7 @@
   </div>
   {% endif %}
 
-  <section class="meeting-editor overflow-hidden rounded-2xl bg-white shadow">
+  <section class="meeting-editor rounded-2xl bg-white shadow">
     <div id="editor"></div>
   </section>
 </div>
@@ -137,8 +153,80 @@
           ]
         : false,
     },
-    placeholder: canEdit ? '議事録を入力...' : '閲覧専用',
+    placeholder: canEdit ? '議事録を入力...（クリックすると書式オプションを表示）' : '閲覧専用',
   });
+
+  if (canEdit) {
+    const floatingToolbar = editor.getModule('toolbar').container;
+    floatingToolbar.setAttribute('role', 'toolbar');
+    floatingToolbar.setAttribute('aria-label', '書式オプション');
+
+    function hideFloatingToolbar() {
+      floatingToolbar.classList.remove('is-visible');
+    }
+
+    function positionFloatingToolbar(range) {
+      if (!range) {
+        return;
+      }
+
+      const selectionBounds = editor.getBounds(range.index, range.length);
+      const editorBounds = editor.container.getBoundingClientRect();
+      floatingToolbar.classList.add('is-visible');
+
+      requestAnimationFrame(() => {
+        const toolbarBounds = floatingToolbar.getBoundingClientRect();
+        const selectionLeft = editorBounds.left + selectionBounds.left;
+        const selectionCenter = selectionLeft + (selectionBounds.width / 2);
+        let left = range.length > 0
+          ? selectionCenter - (toolbarBounds.width / 2)
+          : selectionLeft - 8;
+        let top = editorBounds.top + selectionBounds.top - toolbarBounds.height - 10;
+
+        left = Math.max(8, Math.min(left, window.innerWidth - toolbarBounds.width - 8));
+        if (top < 8) {
+          top = editorBounds.top + selectionBounds.bottom + 10;
+        }
+        top = Math.max(8, Math.min(top, window.innerHeight - toolbarBounds.height - 8));
+
+        floatingToolbar.style.left = `${left}px`;
+        floatingToolbar.style.top = `${top}px`;
+      });
+    }
+
+    function showToolbarAtCurrentSelection() {
+      const range = editor.getSelection();
+      if (range) {
+        positionFloatingToolbar(range);
+      }
+    }
+
+    editor.on('selection-change', (range, _oldRange, source) => {
+      if (range && source === 'user') {
+        positionFloatingToolbar(range);
+      }
+    });
+
+    editor.root.addEventListener('pointerup', () => {
+      requestAnimationFrame(showToolbarAtCurrentSelection);
+    });
+
+    editor.root.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape') {
+        hideFloatingToolbar();
+      }
+    });
+
+    document.addEventListener('pointerdown', (event) => {
+      if (floatingToolbar.contains(event.target) || editor.root.contains(event.target)) {
+        return;
+      }
+      hideFloatingToolbar();
+    });
+
+    window.addEventListener('resize', showToolbarAtCurrentSelection);
+    window.addEventListener('scroll', showToolbarAtCurrentSelection, true);
+  }
 
   const ydoc = new Y.Doc();
   const ytext = ydoc.getText('quill');
@@ -299,6 +387,7 @@
             body: JSON.stringify({
               title: titleInput.value,
               content_base64: contentBase64,
+              plain_text: editor.getText(),
             }),
           });
 

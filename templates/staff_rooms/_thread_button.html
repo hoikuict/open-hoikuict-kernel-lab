@@ -1,11 +1,29 @@
+{% if reply_count >= 10 %}
+  {% set reply_level = "very-high" %}
+  {% set reply_style = "border-fuchsia-600 bg-gradient-to-r from-violet-600 to-fuchsia-600 text-white shadow-md hover:from-violet-700 hover:to-fuchsia-700" %}
+{% elif reply_count >= 5 %}
+  {% set reply_level = "high" %}
+  {% set reply_style = "border-violet-500 bg-gradient-to-r from-indigo-500 to-violet-500 text-white shadow-sm hover:from-indigo-600 hover:to-violet-600" %}
+{% elif reply_count >= 2 %}
+  {% set reply_level = "medium" %}
+  {% set reply_style = "border-indigo-400 bg-gradient-to-r from-indigo-100 to-violet-200 text-indigo-800 hover:from-indigo-200 hover:to-violet-300" %}
+{% elif reply_count == 1 %}
+  {% set reply_level = "low" %}
+  {% set reply_style = "border-indigo-300 bg-gradient-to-r from-indigo-50 to-violet-50 text-indigo-700 hover:from-indigo-100 hover:to-violet-100" %}
+{% else %}
+  {% set reply_level = "none" %}
+  {% set reply_style = "border-slate-200 bg-white text-slate-500 hover:bg-slate-50" %}
+{% endif %}
 <button
   id="thread-toggle-{{ parent_message.id }}"
+  data-reply-level="{{ reply_level }}"
+  data-focus-reply-input
   type="button"
   hx-get="/staff-rooms/threads/{{ parent_message.id }}"
   hx-target="#thread-panel"
   hx-swap="innerHTML"
   {% if oob_reply_count is defined and oob_reply_count %}hx-swap-oob="outerHTML"{% endif %}
-  class="rounded-full border border-indigo-300 px-3 py-1.5 text-xs font-medium text-indigo-700 hover:bg-indigo-50"
+  class="rounded-full border px-2.5 py-1 text-xs font-semibold transition-colors {{ reply_style }}"
 >
   返信 {{ reply_count }}件
 </button>

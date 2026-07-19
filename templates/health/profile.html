@@ -7,7 +7,7 @@
     <div>
       <p class="text-sm font-medium text-emerald-700">健康プロフィール</p>
       <h1 class="text-2xl font-bold text-slate-900">{{ child.full_name }}</h1>
-      <p class="mt-1 text-sm text-slate-500">医療的ケア、既往歴、食事制限などを管理します。</p>
+      <p class="mt-1 text-sm text-slate-500">健康上の重点管理事項、既往歴、食事制限などを管理します。</p>
     </div>
     <div class="flex flex-wrap gap-3">
       <a href="/health" class="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">健康一覧へ</a>
@@ -58,36 +58,32 @@
       <h2 class="text-lg font-semibold text-slate-900">重点管理項目</h2>
       <div class="mt-5 grid gap-4 md:grid-cols-2">
         <label class="flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
-          <input type="checkbox" name="requires_medical_care" {% if form_data.requires_medical_care %}checked{% endif %}>
-          <span>医療的ケアが必要</span>
+          <input type="checkbox" name="has_allergy" {% if form_data.has_allergy %}checked{% endif %}>
+          <span>アレルギーあり</span>
         </label>
         <label class="flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
-          <input type="checkbox" name="epipen_required" {% if form_data.epipen_required %}checked{% endif %}>
-          <span>エピペン携帯が必要</span>
+          <input type="checkbox" name="has_epipen" {% if form_data.has_epipen %}checked{% endif %}>
+          <span>エピペンあり</span>
         </label>
         <label class="flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
-          <input type="checkbox" name="sids_risk_flag" {% if form_data.sids_risk_flag %}checked{% endif %}>
-          <span>SIDS高リスク対象</span>
+          <input type="checkbox" name="has_anaphylaxis" {% if form_data.has_anaphylaxis %}checked{% endif %}>
+          <span>アナフィラキシーあり</span>
         </label>
-        <label class="space-y-2 text-sm text-slate-700">
-          <span class="font-medium">授乳状況</span>
-          <select name="breastfed" class="w-full rounded-lg border border-slate-300 px-3 py-2">
-            <option value="" {% if form_data.breastfed is none %}selected{% endif %}>未設定</option>
-            <option value="yes" {% if form_data.breastfed == true %}selected{% endif %}>母乳育児中</option>
-            <option value="no" {% if form_data.breastfed == false %}selected{% endif %}>母乳育児ではない</option>
-          </select>
+        <label class="flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
+          <input type="checkbox" name="has_febrile_seizure" {% if form_data.has_febrile_seizure %}checked{% endif %}>
+          <span>熱性けいれんあり</span>
         </label>
-        <label class="space-y-2 text-sm text-slate-700 md:col-span-2">
-          <span class="font-medium">医療的ケア詳細</span>
-          <textarea name="medical_care_details" rows="3" class="w-full rounded-lg border border-slate-300 px-3 py-2">{{ form_data.medical_care_details }}</textarea>
+        <label class="flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
+          <input type="checkbox" name="has_nursemaids_elbow" {% if form_data.has_nursemaids_elbow %}checked{% endif %}>
+          <span>肘内障あり</span>
         </label>
-        <label class="space-y-2 text-sm text-slate-700 md:col-span-2">
-          <span class="font-medium">エピペン保管場所</span>
-          <input name="epipen_storage_location" value="{{ form_data.epipen_storage_location }}" class="w-full rounded-lg border border-slate-300 px-3 py-2">
+        <label class="flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
+          <input type="checkbox" name="has_medication" {% if form_data.has_medication %}checked{% endif %}>
+          <span>与薬あり</span>
         </label>
         <label class="space-y-2 text-sm text-slate-700 md:col-span-2">
-          <span class="font-medium">SIDSメモ</span>
-          <textarea name="sids_notes" rows="2" class="w-full rounded-lg border border-slate-300 px-3 py-2">{{ form_data.sids_notes }}</textarea>
+          <span class="font-medium">その他の管理事項</span>
+          <textarea name="other_management_items" rows="3" class="w-full rounded-lg border border-slate-300 px-3 py-2">{{ form_data.other_management_items }}</textarea>
         </label>
       </div>
     </section>
@@ -104,10 +100,22 @@
           <textarea name="current_medications" rows="3" class="w-full rounded-lg border border-slate-300 px-3 py-2">{{ form_data.current_medications }}</textarea>
         </label>
         <label class="space-y-2 text-sm text-slate-700">
+          <span class="font-medium">エピペン保管場所</span>
+          <input name="epipen_storage_location" value="{{ form_data.epipen_storage_location }}" class="w-full rounded-lg border border-slate-300 px-3 py-2">
+        </label>
+        <label class="space-y-2 text-sm text-slate-700">
           <span class="font-medium">障害・発達特性</span>
           <textarea name="disability_info" rows="3" class="w-full rounded-lg border border-slate-300 px-3 py-2">{{ form_data.disability_info }}</textarea>
         </label>
         <div class="grid gap-4 md:grid-cols-2">
+          <label class="space-y-2 text-sm text-slate-700">
+            <span class="font-medium">授乳状況</span>
+            <select name="breastfed" class="w-full rounded-lg border border-slate-300 px-3 py-2">
+              <option value="" {% if form_data.breastfed is none %}selected{% endif %}>未設定</option>
+              <option value="yes" {% if form_data.breastfed == true %}selected{% endif %}>母乳育児中</option>
+              <option value="no" {% if form_data.breastfed == false %}selected{% endif %}>母乳育児ではない</option>
+            </select>
+          </label>
           <label class="space-y-2 text-sm text-slate-700">
             <span class="font-medium">ミルク種類</span>
             <input name="formula_type" value="{{ form_data.formula_type }}" class="w-full rounded-lg border border-slate-300 px-3 py-2">

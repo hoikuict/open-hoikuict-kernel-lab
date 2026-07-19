@@ -17,6 +17,7 @@ from child_health_service import (
     build_measurement_chart_payload,
     expired_allergy_count,
     get_or_create_child_health_profile,
+    has_priority_management_items,
     health_check_is_stale,
     latest_health_check,
     latest_measurement_summary,
@@ -198,7 +199,9 @@ def health_overview(
     summary = {
         "children_count": len(rows),
         "attention_count": sum(1 for row in rows if row["attention_labels"]),
-        "medical_care_count": sum(1 for row in rows if row["profile"] and row["profile"].requires_medical_care),
+        "priority_management_count": sum(
+            1 for row in rows if has_priority_management_items(row["profile"])
+        ),
         "expired_allergy_children_count": sum(1 for row in rows if row["expired_allergy_count"]),
     }
 
@@ -227,15 +230,17 @@ def _profile_form_data(profile: ChildHealthProfile) -> dict[str, object]:
         "primary_doctor_address": profile.primary_doctor_address or "",
         "hospital_name": profile.hospital_name or "",
         "hospital_phone": profile.hospital_phone or "",
-        "requires_medical_care": profile.requires_medical_care,
-        "medical_care_details": profile.medical_care_details or "",
-        "epipen_required": profile.epipen_required,
+        "has_allergy": profile.has_allergy,
+        "has_epipen": profile.has_epipen,
+        "has_anaphylaxis": profile.has_anaphylaxis,
+        "has_febrile_seizure": profile.has_febrile_seizure,
+        "has_nursemaids_elbow": profile.has_nursemaids_elbow,
+        "has_medication": profile.has_medication,
+        "other_management_items": profile.other_management_items or "",
         "epipen_storage_location": profile.epipen_storage_location or "",
         "medical_history": profile.medical_history or "",
         "disability_info": profile.disability_info or "",
         "current_medications": profile.current_medications or "",
-        "sids_risk_flag": profile.sids_risk_flag,
-        "sids_notes": profile.sids_notes or "",
         "breastfed": profile.breastfed,
         "formula_type": profile.formula_type or "",
         "food_texture_level": profile.food_texture_level or "",
@@ -391,15 +396,17 @@ def update_health_profile(
     primary_doctor_address: str = Form(""),
     hospital_name: str = Form(""),
     hospital_phone: str = Form(""),
-    requires_medical_care: Optional[str] = Form(None),
-    medical_care_details: str = Form(""),
-    epipen_required: Optional[str] = Form(None),
+    has_allergy: Optional[str] = Form(None),
+    has_epipen: Optional[str] = Form(None),
+    has_anaphylaxis: Optional[str] = Form(None),
+    has_febrile_seizure: Optional[str] = Form(None),
+    has_nursemaids_elbow: Optional[str] = Form(None),
+    has_medication: Optional[str] = Form(None),
+    other_management_items: str = Form(""),
     epipen_storage_location: str = Form(""),
     medical_history: str = Form(""),
     disability_info: str = Form(""),
     current_medications: str = Form(""),
-    sids_risk_flag: Optional[str] = Form(None),
-    sids_notes: str = Form(""),
     breastfed: str = Form(""),
     formula_type: str = Form(""),
     food_texture_level: str = Form(""),
@@ -427,15 +434,17 @@ def update_health_profile(
     profile.primary_doctor_address = _none_if_blank(primary_doctor_address)
     profile.hospital_name = _none_if_blank(hospital_name)
     profile.hospital_phone = _none_if_blank(hospital_phone)
-    profile.requires_medical_care = _checked(requires_medical_care)
-    profile.medical_care_details = _none_if_blank(medical_care_details)
-    profile.epipen_required = _checked(epipen_required)
+    profile.has_allergy = _checked(has_allergy)
+    profile.has_epipen = _checked(has_epipen)
+    profile.has_anaphylaxis = _checked(has_anaphylaxis)
+    profile.has_febrile_seizure = _checked(has_febrile_seizure)
+    profile.has_nursemaids_elbow = _checked(has_nursemaids_elbow)
+    profile.has_medication = _checked(has_medication)
+    profile.other_management_items = _none_if_blank(other_management_items)
     profile.epipen_storage_location = _none_if_blank(epipen_storage_location)
     profile.medical_history = _none_if_blank(medical_history)
     profile.disability_info = _none_if_blank(disability_info)
     profile.current_medications = _none_if_blank(current_medications)
-    profile.sids_risk_flag = _checked(sids_risk_flag)
-    profile.sids_notes = _none_if_blank(sids_notes)
     if breastfed == "yes":
         profile.breastfed = True
     elif breastfed == "no":
